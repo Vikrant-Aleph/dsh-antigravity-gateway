@@ -1,0 +1,7 @@
+node_modules/
+lib/
+.npm-cache/
+*.tgz
+coverage/
+.DS_Store
+*.log

@@ -1,0 +1,133 @@
+name: Tagged plugin release
+
+# Pushing a version tag (git tag v0.1.0 && git push origin v0.1.0) builds,
+# tests, packs, and publishes a GitHub Release with the changelog section as
+# its notes. No npm publishing, no PAT, no live smoke tests.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      commit: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Validate exact tag, README versions and changelog before install
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node scripts/release-check.mjs --tag "$RELEASE_TAG"
+          test -z "$(git status --porcelain)"
+      - id: commit
+        name: Record verified source commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Install only from committed lockfile
+        run: |
+          npm ci --no-audit --no-fund
+          test -z "$(git status --porcelain)"
+      - name: Build and run offline tests (not live smoke)
+        run: |
+          npm run build
+          npm test
+      - name: Pack exactly one validated plugin archive and checksum
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir "$RUNNER_TEMP/release-assets"
+          npm pack --pack-destination "$RUNNER_TEMP/release-assets"
+          node scripts/release-check.mjs --tag "$RELEASE_TAG" --archive-dir "$RUNNER_TEMP/release-assets"
+          node scripts/release-checksum.mjs "$RUNNER_TEMP/release-assets"
+          node scripts/release-checksum.mjs "$RUNNER_TEMP/release-assets" --verify
+          test -z "$(git status --porcelain)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validated-release-assets
+          path: |
+            ${{ runner.temp }}/release-assets/*.tgz
+            ${{ runner.temp }}/release-assets/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: validated-release-assets
+          path: ${{ runner.temp }}/release-assets
+      - id: metadata
+        name: Revalidate release identity and transferred checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node scripts/release-check.mjs --tag "$RELEASE_TAG"
+          node scripts/release-checksum.mjs "$RUNNER_TEMP/release-assets" --verify
+          tar -tzf "$RUNNER_TEMP/release-assets/"*.tgz
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create public GitHub Release (never overwrite existing releases)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ steps.metadata.outputs.prerelease }}
+          VERIFIED_COMMIT: ${{ needs.build.outputs.commit }}
+        run: |
+          remote_commit=$(gh api "repos/$GH_REPO/commits/refs/tags/$RELEASE_TAG" --jq .sha)
+          if [[ "$remote_commit" != "$VERIFIED_COMMIT" ]]; then
+            echo 'Remote tag moved since build; refusing to release.' >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to replace assets. Inspect and resolve manually.' >&2
+            exit 1
+          fi
+          args=()
+          if [[ "$PRERELEASE" == true ]]; then
+            args+=(--prerelease --latest=false)
+          fi
+          # Release notes are the CHANGELOG section for this version, so the
+          # published page always matches the changelog instead of a commit list.
+          node scripts/release-notes.mjs "${RELEASE_TAG#v}" --out "$RUNNER_TEMP/release-notes.md"
+          gh release create "$RELEASE_TAG" \
+            "$RUNNER_TEMP/release-assets/"*.tgz \
+            "$RUNNER_TEMP/release-assets/SHA256SUMS" \
+            --verify-tag \
+            --title "$RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "${args[@]}"
