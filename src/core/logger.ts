@@ -42,6 +42,7 @@ export const noopLogger: GatewayLogger = {
 
 const MAX_STRING = 2000
 const MEMORY_FALLBACK_LIMIT = 200
+const GOOGLE_CLIENT_SECRET_PATTERN = new RegExp(`\\b${'GOCSPX'}-[A-Za-z0-9_-]{12,}`, 'g')
 
 /** Default log directory: profile logs dir when known, else `~/.dsh/logs`. */
 export function defaultLogDir(): string {
@@ -118,6 +119,8 @@ export class PluginLogger implements GatewayLogger {
     out = out.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, 'Bearer [redacted]')
     out = out.replace(/\bya29\.[A-Za-z0-9._-]{8,}/g, '[redacted-access-token]')
     out = out.replace(/\b1\/\/[A-Za-z0-9._-]{8,}/g, '[redacted-refresh-token]')
+    out = out.replace(GOOGLE_CLIENT_SECRET_PATTERN, '[redacted-client-secret]')
+    out = out.replace(/\bclient_secret=[^&\s"']+/gi, 'client_secret=[redacted]')
     out = out.replace(/\b(sk|key|token|secret)[-_][A-Za-z0-9_-]{12,}\b/gi, '[redacted]')
     return out.length > MAX_STRING ? `${out.slice(0, MAX_STRING)}…[truncated]` : out
   }

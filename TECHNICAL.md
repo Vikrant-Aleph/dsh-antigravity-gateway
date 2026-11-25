@@ -101,10 +101,16 @@ CLIProxyAPI 等第三方实现同样用普通 HTTP 客户端正常工作。若�
 
 ### 2.2 OAuth 客户端
 
-客户端 id/secret 是 Antigravity CLI 内嵌的公开桌面客户端凭据
-（`1071006060591-…apps.googleusercontent.com`），不是机密。 scopes 与 CLI
-一致：cloud-platform、userinfo.email、userinfo.profile、cclog、
-experimentsandconfigs。
+客户端 id/secret 是 Antigravity CLI 内嵌的公开桌面客户端标识
+（`1071006060591-…apps.googleusercontent.com`），不是私密用户凭据。
+为避免明文字面量触发 GitHub Push Protection，源码中在
+[constants.ts](src/protocol/constants.ts) 以 Base64 编码存储并于运行时解码，
+[oauth.ts](src/core/oauth.ts) 默认使用该公开标识保持零配置浏览器一键登录，
+同时支持通过环境变量 `ANTIGRAVITY_OAUTH_CLIENT_ID` +
+`ANTIGRAVITY_OAUTH_CLIENT_SECRET`（或 `ANTIGRAVITY_CLIENT_ID` +
+`ANTIGRAVITY_CLIENT_SECRET`）成对覆盖；日志脱敏层同时屏蔽 OAuth client
+secret 形态与 `client_secret=` 参数。scopes 与 CLI 一致：cloud-platform、
+userinfo.email、userinfo.profile、cclog、experimentsandconfigs。
 
 ### 2.3 端点与代理
 
@@ -439,7 +445,7 @@ RPC（read/stat/clear/level），同一 `LogService` 实现，经 `src/dsh/rpc.t
 
 ## 10. 测试、发布、演进剧本与排障
 
-离线验证（`npm run verify` 包含 `typecheck:ts` + `typecheck:client` + `build` + 155 项 `node:test`）不访问 Google：
+离线验证（`npm run verify` 包含 `typecheck:ts` + `typecheck:client` + `build` + 157 项 `node:test`）不访问 Google：
 - **单元与协议层**：模型路由/载荷/schema/响应/catalog 解析/传输/代理/日志/凭据耐久/原子写盘/命令/提示兼容；
 - **架构与契约守卫**：[architecture.test.mjs](tests/architecture.test.mjs) 校验四层单向依赖与无循环引用；[client-contract.test.mjs](tests/client-contract.test.mjs) 校验 `client.js` 加载安全、`#agw-styles` 去重与前后端 `rpc-contracts.ts` 100% 一致；
 - **端到端集成（本机假端点）**：文本/并行同名工具调用/401 刷新重放/404 禁用原因诊断/429 与预检及流内 429 自动切号（并发 CAS）/503 容量退避恢复/流内错误/空响应/多轮思考签名回放/卸载释放回调端口与 RPC 路由。

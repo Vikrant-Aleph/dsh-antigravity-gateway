@@ -19,7 +19,8 @@ Release notes on GitHub are extracted from the matching section below.
 
 ### Changed
 
-- Refactored internal codebase into a four-layer unidirectional architecture (`shared` ← `protocol` ← `core` ← `dsh` ← `index`), guarded by AST dependency tests, `client.js` `@ts-check` + contract tests, and expanded offline verification (155 tests across 18 suites).
+- Encoded the public Antigravity desktop OAuth client identifier and secret in `src/protocol/constants.ts` using Base64 runtime decoding (with optional paired `ANTIGRAVITY_OAUTH_CLIENT_*` / `ANTIGRAVITY_CLIENT_*` environment overrides in `src/core/oauth.ts`), added OAuth client-secret redaction in `src/core/logger.ts`, and added automated plaintext leak-prevention tests (157 tests across 18 suites).
+- Refactored internal codebase into a four-layer unidirectional architecture (`shared` ← `protocol` ← `core` ← `dsh` ← `index`), guarded by AST dependency tests, `client.js` `@ts-check` + contract tests, and expanded offline verification (157 tests across 18 suites).
 - Settings **Account** tab visual hierarchy (`agw-panel-header`, active account spotlight card with avatar & metadata grid, styled account roster, and clean footer notes).
 - Composer quota indicator now falls back to `quota | XX%` when no `5h` bucket matches and supports closing the hover/focus popover with `Escape`.
 

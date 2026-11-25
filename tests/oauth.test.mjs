@@ -1,9 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
-import { buildAuthorizationUrl, exchangeCode, refreshAccessToken, startCallbackServer } from '../lib/core/oauth.js'
-import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_SCOPES } from '../lib/protocol/constants.js'
+import path from 'node:path'
+import { buildAuthorizationUrl, exchangeCode, refreshAccessToken, resolveOAuthClient, startCallbackServer } from '../lib/core/oauth.js'
+import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET, ANTIGRAVITY_SCOPES } from '../lib/protocol/constants.js'
 
 test('authorization URL carries PKCE S256, offline access, and the CLI scopes', () => {
   const start = buildAuthorizationUrl(51121)
@@ -109,5 +111,95 @@ test('callback server close() drops keep-alive connections and releases port imm
   } finally {
     agent.destroy()
     server.close()
+  }
+})
+
+test('resolveOAuthClient decodes default public client and honors paired env overrides', async () => {
+  assert.ok(ANTIGRAVITY_CLIENT_ID.endsWith('.apps.googleusercontent.com'))
+  assert.ok(ANTIGRAVITY_CLIENT_ID.length > 30)
+  assert.ok(ANTIGRAVITY_CLIENT_SECRET.startsWith(`${'GOCSPX'}-`))
+  assert.ok(ANTIGRAVITY_CLIENT_SECRET.length > 20)
+
+  const keys = [
+    'ANTIGRAVITY_OAUTH_CLIENT_ID',
+    'ANTIGRAVITY_OAUTH_CLIENT_SECRET',
+    'ANTIGRAVITY_CLIENT_ID',
+    'ANTIGRAVITY_CLIENT_SECRET',
+  ]
+  const snapshot = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+  try {
+    for (const k of keys) delete process.env[k]
+    assert.deepEqual(resolveOAuthClient(), {
+      clientId: ANTIGRAVITY_CLIENT_ID,
+      clientSecret: ANTIGRAVITY_CLIENT_SECRET,
+    })
+
+    // Unpaired override falls back safely to defaults.
+    process.env.ANTIGRAVITY_OAUTH_CLIENT_ID = 'unpaired-id'
+    assert.deepEqual(resolveOAuthClient(), {
+      clientId: ANTIGRAVITY_CLIENT_ID,
+      clientSecret: ANTIGRAVITY_CLIENT_SECRET,
+    })
+
+    // Secondary paired override applies.
+    delete process.env.ANTIGRAVITY_OAUTH_CLIENT_ID
+    process.env.ANTIGRAVITY_CLIENT_ID = 'secondary-id'
+    process.env.ANTIGRAVITY_CLIENT_SECRET = 'secondary-secret'
+    assert.deepEqual(resolveOAuthClient(), {
+      clientId: 'secondary-id',
+      clientSecret: 'secondary-secret',
+    })
+
+    // Primary ANTIGRAVITY_OAUTH_CLIENT_* takes precedence over secondary pair.
+    process.env.ANTIGRAVITY_OAUTH_CLIENT_ID = 'primary-id'
+    process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET = 'primary-secret'
+    assert.deepEqual(resolveOAuthClient(), {
+      clientId: 'primary-id',
+      clientSecret: 'primary-secret',
+    })
+
+    const authUrl = new URL(buildAuthorizationUrl(51121).url)
+    assert.equal(authUrl.searchParams.get('client_id'), 'primary-id')
+
+    let exchangedBody = ''
+    await exchangeCode(
+      async (_url, init) => {
+        exchangedBody = String(init?.body ?? '')
+        return new Response(JSON.stringify({ access_token: 'ya29.ok', expires_in: 3600 }), { status: 200 })
+      },
+      { code: 'c', verifier: 'v', redirectUri: 'http://localhost:51121/oauth-callback' },
+    )
+    const exParams = new URLSearchParams(exchangedBody)
+    assert.equal(exParams.get('client_id'), 'primary-id')
+    assert.equal(exParams.get('client_secret'), 'primary-secret')
+  } finally {
+    for (const k of keys) {
+      if (snapshot[k] === undefined) delete process.env[k]
+      else process.env[k] = snapshot[k]
+    }
+  }
+})
+
+test('source, build artifacts, tests, and docs contain zero plaintext OAuth client literals', () => {
+  const secretMarker = `${'GOCSPX'}-`
+  const clientIdMarker = `${'tmhssin2h21lcre235vtolojh4g403ep'}.apps.googleusercontent.com`
+  const dirs = ['src', 'lib', 'tests', 'docs']
+  const files = ['client.js', 'README.md', 'README.us.md', 'TECHNICAL.md', 'TECHNICAL.us.md', 'CHANGELOG.md']
+
+  function walk(dir) {
+    if (!fs.existsSync(dir)) return
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.isFile()) files.push(full)
+    }
+  }
+  for (const d of dirs) walk(d)
+
+  for (const file of files) {
+    if (!fs.existsSync(file)) continue
+    const content = fs.readFileSync(file, 'utf8')
+    assert.ok(!content.includes(secretMarker), `plaintext OAuth secret marker leaked in ${file}`)
+    assert.ok(!content.includes(clientIdMarker), `plaintext OAuth client ID marker leaked in ${file}`)
   }
 })

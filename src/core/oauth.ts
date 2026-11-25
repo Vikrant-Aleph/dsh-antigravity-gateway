@@ -19,6 +19,33 @@ import {
 import { GatewayError } from '../shared/errors.js'
 import type { FetchLike } from './transport/index.js'
 
+export interface OAuthClientCredentials {
+  clientId: string
+  clientSecret: string
+}
+
+/**
+ * Resolve the OAuth desktop client pair. Allows paired environment overrides
+ * (`ANTIGRAVITY_OAUTH_CLIENT_*` or `ANTIGRAVITY_CLIENT_*`), falling back to the
+ * built-in public Antigravity CLI desktop client so browser sign-in stays zero-config.
+ */
+export function resolveOAuthClient(): OAuthClientCredentials {
+  const oauthId = process.env.ANTIGRAVITY_OAUTH_CLIENT_ID?.trim()
+  const oauthSecret = process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET?.trim()
+  if (oauthId && oauthSecret) {
+    return { clientId: oauthId, clientSecret: oauthSecret }
+  }
+  const envId = process.env.ANTIGRAVITY_CLIENT_ID?.trim()
+  const envSecret = process.env.ANTIGRAVITY_CLIENT_SECRET?.trim()
+  if (envId && envSecret) {
+    return { clientId: envId, clientSecret: envSecret }
+  }
+  return {
+    clientId: ANTIGRAVITY_CLIENT_ID,
+    clientSecret: ANTIGRAVITY_CLIENT_SECRET,
+  }
+}
+
 export interface AuthorizationStart {
   url: string
   state: string
@@ -28,12 +55,13 @@ export interface AuthorizationStart {
 
 /** Build the authorization URL; the caller keeps `verifier` server-side. */
 export function buildAuthorizationUrl(port: number): AuthorizationStart {
+  const { clientId } = resolveOAuthClient()
   const verifier = randomBytes(32).toString('base64url')
   const challenge = createHash('sha256').update(verifier).digest('base64url')
   const state = randomBytes(16).toString('hex')
   const redirectUri = `http://localhost:${port}${OAUTH_CALLBACK_PATH}`
   const url = new URL(GOOGLE_AUTH_ENDPOINT)
-  url.searchParams.set('client_id', ANTIGRAVITY_CLIENT_ID)
+  url.searchParams.set('client_id', clientId)
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('redirect_uri', redirectUri)
   url.searchParams.set('scope', ANTIGRAVITY_SCOPES.join(' '))
@@ -125,11 +153,12 @@ export async function exchangeCode(
   fetchImpl: FetchLike,
   input: { code: string; verifier: string; redirectUri: string; signal?: AbortSignal },
 ): Promise<TokenResponse> {
+  const { clientId, clientSecret } = resolveOAuthClient()
   return postTokenForm(
     fetchImpl,
     {
-      client_id: ANTIGRAVITY_CLIENT_ID,
-      client_secret: ANTIGRAVITY_CLIENT_SECRET,
+      client_id: clientId,
+      client_secret: clientSecret,
       code: input.code,
       grant_type: 'authorization_code',
       redirect_uri: input.redirectUri,
@@ -145,13 +174,14 @@ export async function refreshAccessToken(
   refreshToken: string,
   signal?: AbortSignal,
 ): Promise<TokenResponse> {
+  const { clientId, clientSecret } = resolveOAuthClient()
   return postTokenForm(
     fetchImpl,
     {
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
-      client_id: ANTIGRAVITY_CLIENT_ID,
-      client_secret: ANTIGRAVITY_CLIENT_SECRET,
+      client_id: clientId,
+      client_secret: clientSecret,
     },
     signal,
   )
