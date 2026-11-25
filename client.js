@@ -257,28 +257,47 @@
       .agw-pending a { color: var(--dsw-alias-brand-primary, #247bbf); font-size: 12px; overflow-wrap: anywhere; }
       .agw-error { font-size: 12px; color: var(--dsw-alias-state-error-primary, #dc2626); margin: 0; overflow-wrap: anywhere; }
       .agw-ok { font-size: 12px; color: var(--dsw-alias-state-success-primary, #16a34a); margin: 0; }
-      .agw-model-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+      .agw-model-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
       .agw-model-row {
-        display: flex; flex-direction: column; gap: 4px;
-        padding: 8px 12px;
-        border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.12));
+        display: flex; flex-direction: column; gap: 8px;
+        padding: 14px 16px;
+        border: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.08));
         border-radius: 10px;
+        background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,0.025));
       }
-      .agw-model-row.is-disabled { opacity: 0.72; background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,0.02)); }
-      .agw-model-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-      .agw-model-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--dsw-alias-label-primary, #18181b); overflow-wrap: anywhere; }
-      .agw-model-name { font-size: 12px; color: var(--dsw-alias-label-secondary, #71717a); }
-      .agw-model-meta { margin-left: auto; display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--dsw-alias-label-secondary, #71717a); }
-      .agw-model-reason { font-size: 11px; color: var(--dsw-alias-label-secondary, #71717a); margin: 0; line-height: 1.45; }
-      .agw-section-title { font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-primary, #18181b); margin: 4px 0 0; }
-      .agw-quota-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
-      .agw-quota-card { padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.12)); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,0.02)); display: flex; flex-direction: column; gap: 8px; }
-      .agw-quota-title { font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-primary, #18181b); margin: 0; }
+      .agw-model-row.is-disabled { opacity: 0.78; padding: 10px 14px; }
+      .agw-model-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+      .agw-model-identity { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; }
+      .agw-model-title { font-size: 14px; font-weight: 600; color: var(--dsw-alias-label-primary, #18181b); line-height: 1.35; }
+      .agw-model-id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--dsw-alias-label-secondary, #71717a); overflow-wrap: anywhere; }
+      .agw-model-pct { font-size: 18px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-primary, #18181b); flex-shrink: 0; }
+      .agw-model-pct.is-warn { color: var(--dsw-alias-state-warn-primary, #d97706); }
+      .agw-model-pct.is-err { color: var(--dsw-alias-state-error-primary, #dc2626); }
+      .agw-model-sub { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-size: 12px; color: var(--dsw-alias-label-secondary, #71717a); line-height: 1.4; }
+      .agw-model-status-text { font-weight: 500; }
+      .agw-model-status-text.is-in { color: var(--dsw-alias-state-success-primary, #16a34a); }
+      .agw-model-status-text.is-err { color: var(--dsw-alias-state-error-primary, #dc2626); }
+      .agw-model-reason { font-size: 12px; color: var(--dsw-alias-label-secondary, #71717a); margin: 2px 0 0; padding-top: 8px; border-top: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.06)); line-height: 1.5; }
+      .agw-panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+      .agw-panel-heading { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+      .agw-panel-title { font-size: 15px; font-weight: 600; color: var(--dsw-alias-label-primary, #18181b); margin: 0; line-height: 1.35; }
+      .agw-panel-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--dsw-alias-label-secondary, #71717a); }
+      .agw-section-title { font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary, #18181b); margin: 4px 0 0; }
+      .agw-quota-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+      .agw-quota-card { padding: 12px 14px; border: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.08)); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,0.025)); display: flex; flex-direction: column; gap: 8px; }
+      .agw-quota-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+      .agw-quota-title { font-size: 13px; font-weight: 500; color: var(--dsw-alias-label-secondary, #71717a); margin: 0; }
+      .agw-quota-big { font-size: 20px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-primary, #18181b); }
+      .agw-quota-big.is-warn { color: var(--dsw-alias-state-warn-primary, #d97706); }
+      .agw-quota-big.is-err { color: var(--dsw-alias-state-error-primary, #dc2626); }
       .agw-quota-bucket-wrap { display: flex; flex-direction: column; gap: 4px; }
-      .agw-quota-bucket { font-size: 11px; color: var(--dsw-alias-label-secondary, #71717a); display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-      .agw-quota-reset { font-size: 11px; color: var(--dsw-alias-label-secondary, #71717a); }
-      .agw-progress-track { width: 100%; height: 6px; border-radius: 999px; background: var(--dsw-alias-border-l1, rgba(0,0,0,0.09)); overflow: hidden; }
-      .agw-progress-track.is-compact { width: 64px; height: 5px; }
+      .agw-quota-bucket { font-size: 12px; color: var(--dsw-alias-label-secondary, #71717a); display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+      .agw-quota-reset { font-size: 12px; color: var(--dsw-alias-label-secondary, #71717a); }
+      .agw-details { border-top: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.08)); padding-top: 8px; }
+      .agw-details summary { font-size: 13px; font-weight: 500; color: var(--dsw-alias-label-primary, #18181b); cursor: pointer; padding: 4px 0; list-style: none; display: flex; align-items: center; justify-content: space-between; }
+      .agw-details summary::-webkit-details-marker { display: none; }
+      .agw-details[open] summary { margin-bottom: 8px; }
+      .agw-progress-track { width: 100%; height: 5px; border-radius: 999px; background: var(--dsw-alias-border-l1, rgba(0,0,0,0.09)); overflow: hidden; }
       .agw-progress-fill { height: 100%; border-radius: 999px; transition: width 0.2s ease; }
       .agw-progress-fill.is-good { background: var(--dsw-alias-state-success-primary, #16a34a); }
       .agw-progress-fill.is-warn { background: var(--dsw-alias-state-warn-primary, #d97706); }
@@ -290,21 +309,21 @@
       .agw-account-ops { display: flex; align-items: center; gap: 6px; }
       .agw-account-ops button { font-size: 11px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.15)); background: var(--dsw-alias-bg-layer-2, transparent); color: var(--dsw-alias-label-primary, #18181b); cursor: pointer; }
       .agw-account-ops button:hover:not(:disabled) { border-color: var(--dsw-alias-brand-primary, #247bbf); }
-      .agw-composer-wrap { position: relative; display: inline-flex; align-items: center; }
+      .agw-composer-wrap { position: relative; display: inline-flex; align-items: center; height: 28px; }
       .agw-composer-chip {
-        display: inline-flex; align-items: center; gap: 4px;
-        height: 24px; padding: 0 8px; margin: 0;
-        border-radius: 999px;
-        border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.14));
-        background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,0.03));
-        color: var(--dsw-alias-label-secondary, #52525b);
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 11px; line-height: 1; font-weight: 600;
+        display: inline-flex; align-items: center;
+        height: 28px; padding: 0 4px; margin: 0;
+        border: none; border-radius: var(--dsw-radius-sm, 6px);
+        background: transparent;
+        color: var(--dsw-alias-label-secondary, #71717a);
+        font-family: inherit;
+        font-size: 13px; line-height: 20px; font-weight: 600;
+        font-variant-numeric: tabular-nums;
         cursor: pointer; white-space: nowrap;
       }
-      .agw-composer-chip:hover { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-label-primary, #18181b); }
-      .agw-composer-chip.is-warn { color: var(--dsw-alias-state-warn-primary, #d97706); border-color: var(--dsw-alias-state-warn-primary, rgba(217,119,6,0.4)); }
-      .agw-composer-chip.is-err { color: var(--dsw-alias-state-error-primary, #dc2626); border-color: var(--dsw-alias-state-error-primary, rgba(220,38,38,0.4)); }
+      .agw-composer-chip:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); color: var(--dsw-alias-label-primary, #18181b); }
+      .agw-composer-chip.is-warn { color: var(--dsw-alias-state-warn-primary, #d97706); }
+      .agw-composer-chip.is-err { color: var(--dsw-alias-state-error-primary, #dc2626); }
       .agw-quota-popover {
         position: fixed; z-index: 9999; min-width: 260px; max-width: 340px;
         padding: 10px 12px; border-radius: 10px;
@@ -738,62 +757,78 @@
       const sourceBadgeClass = !report ? 'is-out' : report.source === 'live' ? 'is-in' : report.source === 'cached' ? 'is-warn' : 'is-out';
 
       return h('div', { className: 'agw-wrap' },
-        h('p', { className: 'agw-note' }, t('modelsIntro')),
-        h('div', { className: 'agw-toolbar' },
-          h('button', { type: 'button', disabled: busy, onClick: () => void load(true) }, busy ? t('checking') : t('checkAvailability')),
-          sourceKey ? h('span', { className: `agw-badge ${sourceBadgeClass}` }, t(sourceKey)) : null,
-          activeAccount && (activeAccount.email || activeAccount.projectId) ? h('span', { className: 'agw-note' }, `${t('activeAccountLabel')}: ${activeAccount.email || activeAccount.projectId}`) : null,
-          tierLabel ? h('span', { className: 'agw-note' }, `${t('accountTier')}: ${tierLabel}`) : null,
-          report && report.checkedAt ? h('span', { className: 'agw-note' }, `${t('checkedAt')}: ${new Date(report.checkedAt).toLocaleString()}`) : null),
+        h('div', { className: 'agw-panel-header' },
+          h('div', { className: 'agw-panel-heading' },
+            h('h2', { className: 'agw-panel-title' }, t('modelsTitle')),
+            h('div', { className: 'agw-panel-meta' },
+              sourceKey ? h('span', { className: `agw-badge ${sourceBadgeClass}` }, t(sourceKey)) : null,
+              activeAccount && (activeAccount.email || activeAccount.projectId) ? h('span', null, `${t('activeAccountLabel')}: ${activeAccount.email || activeAccount.projectId}`) : null,
+              tierLabel ? h('span', null, `${t('accountTier')}: ${tierLabel}`) : null,
+              report && report.checkedAt ? h('span', null, `${t('checkedAt')} ${new Date(report.checkedAt).toLocaleString()}`) : null)),
+          h('div', { className: 'agw-toolbar' },
+            h('button', { type: 'button', disabled: busy, onClick: () => void load(true) }, busy ? t('checking') : t('checkAvailability')))),
         error ? h('p', { className: 'agw-error', role: 'alert' }, error) : null,
         report && report.error ? h('p', { className: 'agw-note' }, report.error) : null,
         quotaGroups.length > 0 ? h('div', { className: 'agw-wrap' },
           h('h3', { className: 'agw-section-title' }, t('quotaTitle')),
           h('div', { className: 'agw-quota-grid' },
-            quotaGroups.map((/** @type {any} */ group, /** @type {number} */ idx) => h('div', { key: idx, className: 'agw-quota-card' },
-              h('p', { className: 'agw-quota-title' }, group.displayName),
+            quotaGroups.flatMap((/** @type {any} */ group, /** @type {number} */ idx) =>
               (group.buckets || []).map((/** @type {any} */ bucket, /** @type {number} */ bi) => {
                 const resetLabel = formatResetTime(bucket.resetTime, t);
                 const pct = Math.round(clampFraction(bucket.remainingFraction) * 100);
-                return h('div', { key: bi, className: 'agw-quota-bucket-wrap' },
+                const tone = quotaTone(bucket.remainingFraction);
+                const bigTone = tone === 'is-err' ? ' is-err' : tone === 'is-warn' ? ' is-warn' : '';
+                return h('div', { key: `${idx}-${bi}`, className: 'agw-quota-card' },
+                  h('div', { className: 'agw-quota-card-head' },
+                    h('p', { className: 'agw-quota-title' }, group.displayName),
+                    h('span', { className: `agw-quota-big${bigTone}` }, `${pct}%`)),
+                  h(ProgressBar, { fraction: bucket.remainingFraction, label: `${group.displayName} ${bucket.displayName}` }),
                   h('div', { className: 'agw-quota-bucket' },
                     h('span', null, `${bucket.displayName}${bucket.window ? ` (${bucket.window})` : ''}`),
-                    h('strong', null, `${pct}%`)),
-                  h(ProgressBar, { fraction: bucket.remainingFraction, label: `${group.displayName} ${bucket.displayName}` }),
-                  resetLabel ? h('span', { className: 'agw-quota-reset' }, `${t('quotaResets')} ${resetLabel}`) : null);
-              }))))) : null,
+                    resetLabel ? h('span', { className: 'agw-quota-reset' }, `${t('quotaResets')} ${resetLabel}`) : null));
+              })))) : null,
         report && available.length === 0 && unavailable.length === 0 ? h('p', { className: 'agw-note' }, t('modelsEmpty')) : null,
         available.length > 0 ? h('div', { className: 'agw-wrap' },
           h('h3', { className: 'agw-section-title' }, `${t('availableSection')} (${available.length})`),
           h('ul', { className: 'agw-model-list' },
             available.map((/** @type {any} */ model) => {
               const resetLabel = formatResetTime(model.resetTime, t);
+              const hasQuota = typeof model.remainingFraction === 'number';
+              const pct = hasQuota ? Math.round(clampFraction(model.remainingFraction) * 100) : null;
+              const tone = hasQuota ? quotaTone(model.remainingFraction) : 'is-good';
+              const pctTone = tone === 'is-err' ? ' is-err' : tone === 'is-warn' ? ' is-warn' : '';
+              const statusText = t(model.status === 'quota-exhausted' ? 'statusExhausted' : 'statusAvailable');
+              const subLeft = [statusText, model.efforts && model.efforts.length > 0 ? `${t('efforts')}: ${model.efforts.join(' / ')}` : ''].filter(Boolean).join(' · ');
               return h('li', { key: model.id, className: 'agw-model-row' },
-                h('div', { className: 'agw-model-top' },
-                  h('span', { className: `agw-badge ${model.status === 'quota-exhausted' ? 'is-err' : 'is-in'}` },
-                    t(model.status === 'quota-exhausted' ? 'statusExhausted' : 'statusAvailable')),
-                  h('span', { className: 'agw-model-id' }, model.id),
-                  h('span', { className: 'agw-model-name' }, model.name),
-                  h('span', { className: 'agw-model-meta' },
-                    model.efforts && model.efforts.length > 0 ? h('span', null, `${t('efforts')}: ${model.efforts.join('/')}`) : null,
-                    typeof model.remainingFraction === 'number' ? h(ProgressBar, { fraction: model.remainingFraction, compact: true, label: model.name }) : null,
-                    typeof model.remainingFraction === 'number' ? h('span', null, `${Math.round(clampFraction(model.remainingFraction) * 100)}%`) : null,
-                    resetLabel ? h('span', null, `${t('quotaResets')} ${resetLabel}`) : null,
-                    model.tagTitle ? h('span', { className: 'agw-badge is-warn' }, model.tagTitle) : null)),
+                h('div', { className: 'agw-model-head' },
+                  h('div', { className: 'agw-model-identity' },
+                    h('span', { className: 'agw-model-title' }, model.name || model.id),
+                    model.name && model.name !== model.id ? h('span', { className: 'agw-model-id' }, model.id) : null,
+                    model.tagTitle ? h('span', { className: 'agw-badge is-warn' }, model.tagTitle) : null),
+                  pct !== null
+                    ? h('span', { className: `agw-model-pct${pctTone}` }, `${pct}%`)
+                    : h('span', { className: `agw-badge ${model.status === 'quota-exhausted' ? 'is-err' : 'is-in'}` }, statusText)),
+                hasQuota ? h(ProgressBar, { fraction: model.remainingFraction, label: model.name || model.id }) : null,
+                h('div', { className: 'agw-model-sub' },
+                  h('span', { className: `agw-model-status-text ${model.status === 'quota-exhausted' ? 'is-err' : 'is-in'}` }, subLeft),
+                  resetLabel ? h('span', { className: 'agw-quota-reset' }, `${t('quotaResets')} ${resetLabel}`) : null),
                 model.tagDescription ? h('p', { className: 'agw-model-reason' }, model.tagDescription) : null);
             }))) : null,
-        unavailable.length > 0 ? h('div', { className: 'agw-wrap' },
-          h('h3', { className: 'agw-section-title' }, `${t('unavailableSection')} (${unavailable.length})`),
+        unavailable.length > 0 ? h('details', { className: 'agw-details', ...(available.length === 0 ? { open: true } : {}) },
+          h('summary', null,
+            h('span', null, `${t('unavailableSection')} (${unavailable.length})`),
+            h('span', { className: 'agw-note' }, '▾')),
           h('ul', { className: 'agw-model-list' },
             unavailable.map((/** @type {any} */ model) => h('li', { key: model.id, className: 'agw-model-row is-disabled' },
-              h('div', { className: 'agw-model-top' },
+              h('div', { className: 'agw-model-head' },
+                h('div', { className: 'agw-model-identity' },
+                  h('span', { className: 'agw-model-title' }, model.name || model.id),
+                  model.name && model.name !== model.id ? h('span', { className: 'agw-model-id' }, model.id) : null),
                 h('span', { className: `agw-badge ${model.status === 'disabled' ? 'is-err' : 'is-out'}` },
-                  t(model.status === 'disabled' ? 'statusDisabled' : 'statusNotOffered')),
-                h('span', { className: 'agw-model-id' }, model.id),
-                h('span', { className: 'agw-model-name' }, model.name),
-                model.reasonTitle ? h('span', { className: 'agw-model-meta' },
-                  h('span', { className: 'agw-badge is-warn' }, model.reasonTitle)) : null),
-              model.reasonDetail ? h('p', { className: 'agw-model-reason' }, model.reasonDetail) : null)))) : null);
+                  t(model.status === 'disabled' ? 'statusDisabled' : 'statusNotOffered'))),
+              model.reasonTitle || model.reasonDetail
+                ? h('p', { className: 'agw-model-reason' }, [model.reasonTitle, model.reasonDetail].filter(Boolean).join(' — '))
+                : null)))) : null);
     }
 
     /** @type {TranslateFn | undefined} */

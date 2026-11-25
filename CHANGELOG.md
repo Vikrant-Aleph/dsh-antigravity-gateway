@@ -10,8 +10,8 @@ Release notes on GitHub are extracted from the matching section below.
 
 ### Added
 
-- Settings **Models** tab quota visualization: progress bars (`role="progressbar"`), color-coded remaining percentage, and reset countdown + local reset time for every quota group bucket (5-hour / weekly) and per-model quota.
-- Chat composer compact 5-hour quota chip (`5h | XX%`) mounted via `conversation.input.right` immediately to the left of the model selector when a model owned by this plugin is selected, with a body-portaled hover card showing full account, selected-model, and group quota details.
+- Settings **Models** tab quota visualization: clear hierarchical cards (`agw-panel-header`, quota cards with prominent percentages, full-width 5px progress bars, aligned metadata/reset rows, and collapsible unavailable models) showing remaining percentage and reset countdown + local time for every quota group bucket (5-hour / weekly) and available model.
+- Chat composer compact 5-hour quota label (`5h | XX%`) mounted via `conversation.input.right` immediately to the left of the model selector when a model owned by this plugin is selected — borderless, matching the model trigger's UI font and `13px`/`28px` alignment at semibold (`600`) weight, with a body-portaled hover card showing full account, selected-model, and group quota details.
 - Multi-account management (`CredentialVault` v2 with automatic backward-compatible single-account v1 persistence and migration): add/import multiple Google accounts, view account list, switch active account, and remove individual accounts from Settings → Account or `/agw accounts` · `/agw switch` · `/agw logout [all]`.
 - Per-account isolated memory and disk catalog caches (`catalog-cache.json` v2) and automatic quota-exhaustion failover (`autoSwitchAccount: true` by default): on HTTP `429`, in-stream `RESOURCE_EXHAUSTED`, or pre-flight known `0%` quota, seamlessly switches to an eligible backup account while preserving the user's selected model and reasoning effort.
 

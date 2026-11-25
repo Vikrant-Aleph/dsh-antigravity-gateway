@@ -417,6 +417,19 @@ test('client.js renders quota progress bars in Models tab, multi-account control
   assert.ok(modelsBars.length >= 3, 'ModelsPanel must render progress bars for quota groups and models')
   assert.equal(modelsBars[0].props['aria-valuenow'], 87)
   assert.match(flattenText(modelsTreeLoaded), /quotaResets/)
+  assert.equal(findElements(modelsTreeLoaded, (n) => n.props?.className === 'agw-panel-header').length, 1)
+  assert.ok(findElements(modelsTreeLoaded, (n) => String(n.props?.className || '').includes('agw-model-pct')).length >= 1)
+
+  // 4. Composer quota chip CSS stays borderless and aligns font/size/height with ModelSelect .trigger.
+  const code = fs.readFileSync(CLIENT_PATH, 'utf8')
+  const chipCss = /\.agw-composer-chip\s*\{([^}]+)\}/.exec(code)?.[1] ?? ''
+  assert.match(chipCss, /border:\s*none/)
+  assert.match(chipCss, /background:\s*transparent/)
+  assert.match(chipCss, /font-family:\s*inherit/)
+  assert.match(chipCss, /font-size:\s*13px/)
+  assert.match(chipCss, /line-height:\s*20px/)
+  assert.match(chipCss, /font-weight:\s*600/)
+  assert.match(chipCss, /height:\s*28px/)
 })
 
 test('client.js RPC channels, namespaces, and endpoints match src/shared/rpc-contracts.ts 100%', () => {
