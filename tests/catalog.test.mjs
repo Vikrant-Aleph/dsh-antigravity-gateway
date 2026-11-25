@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { parseLiveCatalog, parseLiveModelIds, parseQuotaSummary, definitionAvailable, selectQuotaForModel, ModelCatalog } from '../lib/core/catalog.js'
+import { accountCacheKey, parseLiveCatalog, parseLiveModelIds, parseQuotaSummary, definitionAvailable, selectQuotaForModel, ModelCatalog } from '../lib/core/catalog.js'
 import { MODEL_DEFINITIONS, getDefinition } from '../lib/protocol/models.js'
 
 test('parseLiveModelIds accepts both envelope shapes and modelName aliases', () => {
@@ -349,7 +349,7 @@ test('catalog isolates multi-account disk caches and selects highest-quota eligi
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-cat-multi-'))
   const cacheFile = path.join(dir, 'catalog-cache.json')
   try {
-    let active = { id: 'a1', email: 'a1@example.com', projectId: 'proj-1' }
+    let active = { id: 'a1', email: 'a1@example.com', projectId: 'aicode-consumers' }
     const auth = {
       async status() { return { loggedIn: true, activeAccountId: active.id, ...active } },
       async getCredential() { return { ...active, refreshToken: '1//x', accessToken: 'ya29.x', expiresAt: Date.now() + 3_600_000 } },
@@ -365,29 +365,34 @@ test('catalog isolates multi-account disk caches and selects highest-quota eligi
     }
     const catalog = new ModelCatalog(auth, transport, { ttlMs: 60_000, cacheFile })
     await catalog.getAvailabilityReport()
-    active = { id: 'a2', email: 'a2@example.com', projectId: 'proj-2' }
+    active = { id: 'a2', email: 'a2@example.com', projectId: 'aicode-consumers' }
     await catalog.getAvailabilityReport()
 
-    // Disk file preserves both accounts independently.
+    const k1 = accountCacheKey({ id: 'a1', email: 'a1@example.com', projectId: 'aicode-consumers' })
+    const k2 = accountCacheKey({ id: 'a2', email: 'a2@example.com', projectId: 'aicode-consumers' })
+    const k3 = accountCacheKey({ id: 'a3', email: 'a3@example.com', projectId: 'aicode-consumers' })
+    assert.notEqual(k1, k2, 'accounts sharing aicode-consumers must get distinct cache keys')
+
+    // Disk file preserves both accounts independently even with shared aicode-consumers projectId.
     const rawDisk = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
     assert.equal(rawDisk.version, 2)
-    assert.ok(rawDisk.entries['proj:proj-1'])
-    assert.ok(rawDisk.entries['proj:proj-2'])
+    assert.ok(rawDisk.entries[k1])
+    assert.ok(rawDisk.entries[k2])
 
     const accounts = [
-      { id: 'a1', email: 'a1@example.com', projectId: 'proj-1', active: true },
-      { id: 'a2', email: 'a2@example.com', projectId: 'proj-2', active: false },
-      { id: 'a3', email: 'a3@example.com', projectId: 'proj-3', active: false },
+      { id: 'a1', email: 'a1@example.com', projectId: 'aicode-consumers', active: true },
+      { id: 'a2', email: 'a2@example.com', projectId: 'aicode-consumers', active: false },
+      { id: 'a3', email: 'a3@example.com', projectId: 'aicode-consumers', active: false },
     ]
     const best = catalog.selectBestAccountForModel(accounts, 'a1', 'claude-sonnet-5-5', new Set())
     assert.equal(best.id, 'a2')
 
     // Mark a2 exhausted -> falls back to unprobed a3; mark a3 exhausted -> undefined.
-    catalog.markAccountQuotaExhausted('proj:proj-2', 'claude-sonnet-5-5', Date.now() + 60_000)
+    catalog.markAccountQuotaExhausted(k2, 'claude-sonnet-5-5', Date.now() + 60_000)
     const fallback = catalog.selectBestAccountForModel(accounts, 'a1', 'claude-sonnet-5-5', new Set())
     assert.equal(fallback.id, 'a3')
 
-    catalog.markAccountQuotaExhausted('proj:proj-3', 'claude-sonnet-5-5', Date.now() + 60_000)
+    catalog.markAccountQuotaExhausted(k3, 'claude-sonnet-5-5', Date.now() + 60_000)
     assert.equal(catalog.selectBestAccountForModel(accounts, 'a1', 'claude-sonnet-5-5', new Set()), undefined)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })

@@ -315,6 +315,8 @@ test('client.js renders quota progress bars in Models tab, multi-account control
             email: 'a1@example.com',
             projectId: 'proj-1',
             backend: 'credentials-service',
+            expiresAt: Date.now() + 3_600_000,
+            tier: { current: { id: 'free-tier', name: 'Antigravity' } },
             loginPending: false,
             autoSwitchAccount: true,
             activeAccountId: 'a1',
@@ -406,6 +408,8 @@ test('client.js renders quota progress bars in Models tab, multi-account control
   assert.match(accText, /a1@example\.com/)
   assert.match(accText, /a2@example\.com/)
   assert.match(accText, /switchAccount/)
+  assert.equal(findElements(accTreeLoaded, (n) => n.props?.className === 'agw-account-hero').length, 1)
+  assert.ok(findElements(accTreeLoaded, (n) => n.props?.className === 'agw-meta-tile').length >= 2)
 
   // 3. Switch GatewayPanel to Models tab and verify quota cards show bold 5h/weekly labels and clean model rows without redundant ID/quota/description.
   const modelsTabBtn = findElements(settingsAcc, (n) => n.props?.id === 'agw-tab-models')[0]

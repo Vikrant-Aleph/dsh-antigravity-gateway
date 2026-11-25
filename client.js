@@ -72,6 +72,7 @@
       accountsTitle: 'Signed-in accounts',
       autoSwitchOn: 'Auto-switch on quota exhaustion: enabled (keeps selected model)',
       autoSwitchOff: 'Auto-switch on quota exhaustion: disabled',
+      backendRestartHint: 'Multi-account API unavailable on the running host process — restart DSH after rebuilding.',
       multiAccountCount: 'accounts',
       activeAccountLabel: 'Active account',
       refresh: 'Refresh',
@@ -154,6 +155,7 @@
       accountsTitle: '已登录账号列表',
       autoSwitchOn: '额度耗尽自动切换账号：已开启（保留当前所选模型）',
       autoSwitchOff: '额度耗尽自动切换账号：已关闭',
+      backendRestartHint: '当前运行中的宿主后端尚未加载多账号接口，请编译并重启 DSH 后再添加多账号。',
       multiAccountCount: '个账号',
       activeAccountLabel: '当前账号',
       refresh: '刷新',
@@ -303,13 +305,45 @@
       .agw-progress-fill.is-good { background: var(--dsw-alias-state-success-primary, #16a34a); }
       .agw-progress-fill.is-warn { background: var(--dsw-alias-state-warn-primary, #d97706); }
       .agw-progress-fill.is-err { background: var(--dsw-alias-state-error-primary, #dc2626); }
-      .agw-account-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-      .agw-account-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.10)); border-radius: 8px; background: var(--dsw-alias-bg-layer-1, rgba(255,255,255,0.5)); }
-      .agw-account-item.is-active { border-color: var(--dsw-alias-brand-primary, #247bbf); }
-      .agw-account-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+      .agw-account-hero {
+        display: flex; flex-direction: column; gap: 12px;
+        padding: 14px 16px;
+        border: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.08));
+        border-radius: 10px;
+        background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,0.025));
+      }
+      .agw-account-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+      .agw-account-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .agw-avatar {
+        width: 32px; height: 32px; border-radius: 999px; flex-shrink: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 13px; font-weight: 700; text-transform: uppercase;
+        color: var(--dsw-alias-brand-primary, #247bbf);
+        background: var(--dsw-alias-bg-layer-1, rgba(36,123,191,0.12));
+        border: 1px solid var(--dsw-alias-border-l1, rgba(36,123,191,0.22));
+      }
+      .agw-avatar.is-sm { width: 24px; height: 24px; font-size: 11px; }
+      .agw-account-id-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+      .agw-account-email { font-size: 14px; font-weight: 600; color: var(--dsw-alias-label-primary, #18181b); overflow-wrap: anywhere; line-height: 1.3; }
+      .agw-account-sub { font-size: 12px; color: var(--dsw-alias-label-secondary, #71717a); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .agw-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+      .agw-meta-tile {
+        display: flex; flex-direction: column; gap: 2px;
+        padding: 8px 10px; border-radius: 8px;
+        background: var(--dsw-alias-bg-layer-1, rgba(255,255,255,0.6));
+        border: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.06));
+      }
+      .agw-meta-label { font-size: 11px; color: var(--dsw-alias-label-secondary, #71717a); }
+      .agw-meta-value { font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-primary, #18181b); overflow-wrap: anywhere; }
+      .agw-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+      .agw-account-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+      .agw-account-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.08)); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,0.02)); }
+      .agw-account-item.is-active { border-color: var(--dsw-alias-brand-primary, #247bbf); background: var(--dsw-alias-bg-layer-1, rgba(36,123,191,0.03)); }
+      .agw-account-info { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; font-weight: 500; color: var(--dsw-alias-label-primary, #18181b); min-width: 0; }
       .agw-account-ops { display: flex; align-items: center; gap: 6px; }
-      .agw-account-ops button { font-size: 11px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.15)); background: var(--dsw-alias-bg-layer-2, transparent); color: var(--dsw-alias-label-primary, #18181b); cursor: pointer; }
+      .agw-account-ops button { font-size: 12px; padding: 4px 10px; border-radius: 7px; border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.15)); background: var(--dsw-alias-bg-layer-1, transparent); color: var(--dsw-alias-label-primary, #18181b); cursor: pointer; }
       .agw-account-ops button:hover:not(:disabled) { border-color: var(--dsw-alias-brand-primary, #247bbf); }
+      .agw-footer-notes { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.06)); }
       .agw-composer-wrap { position: relative; display: inline-flex; align-items: center; height: 28px; }
       .agw-composer-chip {
         display: inline-flex; align-items: center;
@@ -675,52 +709,80 @@
 
       const blocked = !!(status === null && error);
       const accounts = status && Array.isArray(status.accounts) ? status.accounts : [];
+      const activeTitle = status && (status.email || status.projectId || status.activeAccountId) || '';
+      const activeInitial = activeTitle ? String(activeTitle).trim().charAt(0) : 'G';
+      const tierText = status && status.tier && (status.tier.current || status.tier.paid)
+        ? [
+            status.tier.current && `${status.tier.current.name || status.tier.current.id} (${status.tier.current.id})`,
+            status.tier.paid && `${status.tier.paid.name || status.tier.paid.id} (${status.tier.paid.id})`,
+          ].filter(Boolean).join(' · ')
+        : '';
+
       return h('div', { className: 'agw-wrap' },
-        h('div', { className: 'agw-card' },
-          h('div', { className: 'agw-status-row' },
-            h('span', { className: `agw-badge ${status && status.loggedIn ? 'is-in' : 'is-out'}`, role: 'status' },
-              busy === 'status' ? t('loading') : status ? t(status.loggedIn ? 'signedIn' : 'notSignedIn') : t('statusUnavailable')),
-            accounts.length > 1 ? h('span', { className: 'agw-badge is-in' }, `${accounts.length} ${t('multiAccountCount')}`) : null,
-            status && status.loginPending ? h('span', { className: 'agw-badge is-warn' }, t('pendingTitle')) : null),
-          status && status.loggedIn ? h('dl', { className: 'agw-kv' },
-            status.email ? h('dt', { key: 'ek' }, t('accountEmail')) : null,
-            status.email ? h('dd', { key: 'ev' }, status.email) : null,
-            status.projectId ? h('dt', { key: 'pk' }, t('accountProject')) : null,
-            status.projectId ? h('dd', { key: 'pv' }, status.projectId) : null,
-            status.tier && (status.tier.current || status.tier.paid) ? h('dt', { key: 'trk' }, t('accountTier')) : null,
-            status.tier && (status.tier.current || status.tier.paid) ? h('dd', { key: 'trv' },
-              [status.tier.current && `${status.tier.current.name || status.tier.current.id} (${status.tier.current.id})`, status.tier.paid && `${status.tier.paid.name || status.tier.paid.id} (${status.tier.paid.id})`].filter(Boolean).join(' · ')) : null,
-            status.expiresAt ? h('dt', { key: 'tk' }, t('tokenExpiry')) : null,
-            status.expiresAt ? h('dd', { key: 'tv' }, new Date(status.expiresAt).toLocaleString()) : null,
-            h('dt', { key: 'bk' }, t('backend')),
-            h('dd', { key: 'bv' }, status.backend)) : null,
-          accounts.length > 0 ? h('div', { className: 'agw-wrap' },
-            h('p', { className: 'agw-section-title' }, `${t('accountsTitle')} (${accounts.length})`),
-            h('ul', { className: 'agw-account-list' },
-              accounts.map((/** @type {any} */ acct) => h('li', { key: acct.id, className: `agw-account-item${acct.active ? ' is-active' : ''}` },
-                h('div', { className: 'agw-account-info' },
-                  acct.active ? h('span', { className: 'agw-badge is-in' }, t('activeBadge')) : null,
-                  h('span', null, acct.email || acct.projectId || acct.id),
-                  acct.email && acct.projectId ? h('span', { className: 'agw-note' }, `(${acct.projectId})`) : null),
-                h('div', { className: 'agw-account-ops' },
-                  !acct.active ? h('button', { type: 'button', disabled: busy !== '', onClick: () => void act('switch', 'switchedAccount', { accountId: acct.id }) }, t('switchAccount')) : null,
-                  h('button', { type: 'button', disabled: busy !== '', onClick: () => onLogout(acct.id) }, t('removeAccount')))))),
-            h('p', { className: 'agw-note' }, t(status && status.autoSwitchAccount !== false ? 'autoSwitchOn' : 'autoSwitchOff'))) : null,
-          status && status.loginPending ? h('div', { className: 'agw-pending' },
-            h('p', { className: 'agw-note' }, t('pendingHint')),
-            status.loginUrl ? h('a', { href: status.loginUrl, target: '_blank', rel: 'noreferrer' }, t('openAuthUrl')) : null,
-            h('div', { className: 'agw-actions' },
-              h('button', { type: 'button', disabled: busy !== '', onClick: () => void act('cancel', 'loginCancelled') }, t('cancelLogin')))) : null,
-          status && status.loginError && !status.loginPending ? h('p', { className: 'agw-error', role: 'alert' }, status.loginError) : null,
+        h('div', { className: 'agw-panel-header' },
+          h('div', { className: 'agw-panel-heading' },
+            h('h2', { className: 'agw-panel-title' }, t('tabAccount')),
+            h('div', { className: 'agw-panel-meta' },
+              h('span', { className: `agw-badge ${status && status.loggedIn ? 'is-in' : 'is-out'}`, role: 'status' },
+                busy === 'status' ? t('loading') : status ? t(status.loggedIn ? 'signedIn' : 'notSignedIn') : t('statusUnavailable')),
+              accounts.length > 0 ? h('span', null, `${accounts.length} ${t('multiAccountCount')}`) : null,
+              status && status.backend ? h('span', null, status.backend) : null,
+              status && status.loginPending ? h('span', { className: 'agw-badge is-warn' }, t('pendingTitle')) : null)),
           h('div', { className: 'agw-actions' },
             !(status && status.loginPending) ? h('button', { type: 'button', className: 'agw-primary', disabled: busy !== '' || blocked, onClick: () => void act('login') }, busy === 'login' ? t('starting') : t(status && status.loggedIn ? 'addAccount' : 'signIn')) : null,
             h('button', { type: 'button', disabled: busy !== '' || blocked, onClick: () => void act('import', 'importDone') }, t('importAccount')),
-            status && status.loggedIn ? h('button', { type: 'button', disabled: busy !== '', onClick: () => onLogout() }, t('logout')) : null,
-            h('button', { type: 'button', disabled: busy !== '', onClick: () => void load(false) }, t('refresh'))),
-          error ? h('p', { className: 'agw-error', role: 'alert' }, error) : null,
-          notice ? h('p', { className: 'agw-ok', role: 'status' }, notice) : null,
-          h('p', { className: 'agw-note' }, t('persistentNote'))),
-        h('p', { className: 'agw-note' }, t('riskNote')));
+            h('button', { type: 'button', disabled: busy !== '', onClick: () => void load(false) }, t('refresh')))),
+        error ? h('p', { className: 'agw-error', role: 'alert' }, error) : null,
+        notice ? h('p', { className: 'agw-ok', role: 'status' }, notice) : null,
+        status && status.loginError && !status.loginPending ? h('p', { className: 'agw-error', role: 'alert' }, status.loginError) : null,
+        status && status.loginPending ? h('div', { className: 'agw-pending' },
+          h('p', { className: 'agw-note' }, t('pendingHint')),
+          status.loginUrl ? h('a', { href: status.loginUrl, target: '_blank', rel: 'noreferrer' }, t('openAuthUrl')) : null,
+          h('div', { className: 'agw-actions' },
+            h('button', { type: 'button', disabled: busy !== '', onClick: () => void act('cancel', 'loginCancelled') }, t('cancelLogin')))) : null,
+        status && status.loggedIn ? h('div', { className: 'agw-account-hero' },
+          h('div', { className: 'agw-account-hero-top' },
+            h('div', { className: 'agw-account-identity' },
+              h('span', { className: 'agw-avatar', 'aria-hidden': 'true' }, activeInitial),
+              h('div', { className: 'agw-account-id-text' },
+                h('span', { className: 'agw-account-email' }, activeTitle || t('signedIn')),
+                h('div', { className: 'agw-account-sub' },
+                  h('span', { className: 'agw-badge is-in' }, t('activeBadge')),
+                  status.projectId ? h('span', null, `${t('accountProject')}: ${status.projectId}`) : null))),
+            h('div', { className: 'agw-account-ops' },
+              h('button', { type: 'button', disabled: busy !== '', onClick: () => onLogout() }, t('logout')))),
+          h('div', { className: 'agw-meta-grid' },
+            tierText ? h('div', { className: 'agw-meta-tile' },
+              h('span', { className: 'agw-meta-label' }, t('accountTier')),
+              h('span', { className: 'agw-meta-value' }, tierText)) : null,
+            status.expiresAt ? h('div', { className: 'agw-meta-tile' },
+              h('span', { className: 'agw-meta-label' }, t('tokenExpiry')),
+              h('span', { className: 'agw-meta-value' }, new Date(status.expiresAt).toLocaleString())) : null,
+            h('div', { className: 'agw-meta-tile' },
+              h('span', { className: 'agw-meta-label' }, t('backend')),
+              h('span', { className: 'agw-meta-value' }, status.backend)))) : null,
+        accounts.length > 0 ? h('div', { className: 'agw-wrap' },
+          h('div', { className: 'agw-section-head' },
+            h('h3', { className: 'agw-section-title' }, `${t('accountsTitle')} (${accounts.length})`),
+            h('span', { className: 'agw-note' }, t(status && status.autoSwitchAccount !== false ? 'autoSwitchOn' : 'autoSwitchOff'))),
+          h('ul', { className: 'agw-account-list' },
+            accounts.map((/** @type {any} */ acct) => {
+              const label = acct.email || acct.projectId || acct.id;
+              const initial = String(label).trim().charAt(0) || 'G';
+              return h('li', { key: acct.id, className: `agw-account-item${acct.active ? ' is-active' : ''}` },
+                h('div', { className: 'agw-account-info' },
+                  h('span', { className: 'agw-avatar is-sm', 'aria-hidden': 'true' }, initial),
+                  h('span', null, label),
+                  acct.active ? h('span', { className: 'agw-badge is-in' }, t('activeBadge')) : null),
+                h('div', { className: 'agw-account-ops' },
+                  !acct.active ? h('button', { type: 'button', disabled: busy !== '', onClick: () => void act('switch', 'switchedAccount', { accountId: acct.id }) }, t('switchAccount')) : null,
+                  h('button', { type: 'button', disabled: busy !== '', onClick: () => onLogout(acct.id) }, t('removeAccount'))));
+            }))) : (status && status.loggedIn && !Array.isArray(status.accounts)
+          ? h('p', { className: 'agw-error', role: 'alert' }, t('backendRestartHint'))
+          : null),
+        h('div', { className: 'agw-footer-notes' },
+          h('p', { className: 'agw-note' }, t('persistentNote')),
+          h('p', { className: 'agw-note' }, t('riskNote'))));
     }
 
     /** @type {TranslateFn | undefined} */

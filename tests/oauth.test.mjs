@@ -22,11 +22,12 @@ test('authorization URL carries PKCE S256, offline access, and the CLI scopes', 
   assert.ok(start.verifier.length >= 43)
 })
 
-test('token exchange posts the PKCE form and parses expiry', async () => {
+test('token exchange posts the PKCE form and parses expiry and id_token email', async () => {
   let captured
+  const jwtPayload = Buffer.from(JSON.stringify({ email: 'jwt-user@gmail.com' })).toString('base64url')
   const fetchImpl = async (url, init) => {
     captured = { url, body: init.body }
-    return new Response(JSON.stringify({ access_token: 'ya29.test', refresh_token: '1//test', expires_in: 3599 }), { status: 200 })
+    return new Response(JSON.stringify({ access_token: 'ya29.test', refresh_token: '1//test', expires_in: 3599, id_token: `h.${jwtPayload}.s` }), { status: 200 })
   }
   const tokens = await exchangeCode(fetchImpl, { code: 'auth-code', verifier: 'verifier', redirectUri: 'http://localhost:51121/oauth-callback' })
   assert.equal(captured.url, 'https://oauth2.googleapis.com/token')
@@ -36,6 +37,7 @@ test('token exchange posts the PKCE form and parses expiry', async () => {
   assert.equal(form.get('code_verifier'), 'verifier')
   assert.equal(tokens.accessToken, 'ya29.test')
   assert.equal(tokens.refreshToken, '1//test')
+  assert.equal(tokens.email, 'jwt-user@gmail.com')
   assert.ok(tokens.expiresAt > Date.now())
 })
 

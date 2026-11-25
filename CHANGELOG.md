@@ -8,6 +8,14 @@ Release notes on GitHub are extracted from the matching section below.
 
 ## [Unreleased]
 
+### Fixed
+
+- Multi-account deduplication and cache isolation when multiple consumer Google accounts share the `aicode-consumers` project ID: account identity and cache keys now prioritize normalized email (with `id_token` JWT email extraction fallback when `/userinfo` is unavailable) and never merge distinct accounts on shared project IDs.
+
+### Changed
+
+- Settings **Account** tab visual hierarchy (`agw-panel-header`, active account spotlight card with avatar & metadata grid, styled account roster, and clean footer notes).
+
 ### Added
 
 - Settings **Models** tab quota visualization: clear hierarchical cards (`agw-panel-header`, quota cards with bold `5h` / `weekly` labels, prominent percentages, full-width 5px progress bars, and reset countdown + local time; streamlined available model rows showing model display name, status, and efforts without redundant model ID, duplicate quota, or verbose description text, plus collapsible unavailable models).

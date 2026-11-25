@@ -12,7 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { AntigravityGatewayAdapter } from '../lib/dsh/adapter.js'
 import { AuthManager } from '../lib/core/auth.js'
-import { ModelCatalog } from '../lib/core/catalog.js'
+import { accountCacheKey, ModelCatalog } from '../lib/core/catalog.js'
 import { CredentialStore } from '../lib/core/credentials.js'
 import { AgyTransport } from '../lib/core/transport/index.js'
 import { noopLogger } from '../lib/core/logger.js'
@@ -779,8 +779,8 @@ test('auto-failover switches account on 429 / pre-flight exhaustion / in-stream 
       assert.equal((await auth.status()).activeAccountId, accC.id)
 
       // 3. Proactive pre-flight failover: mark accC exhausted -> switches immediately without hitting server for accC.
-      catalog.clearAccountQuotaExhausted('proj:proj-b', 'claude-opus-4-6-thinking')
-      catalog.markAccountQuotaExhausted('proj:proj-c', 'claude-opus-4-6-thinking', Date.now() + 60_000)
+      catalog.clearAccountQuotaExhausted(accountCacheKey(accB), 'claude-opus-4-6-thinking')
+      catalog.markAccountQuotaExhausted(accountCacheKey(accC), 'claude-opus-4-6-thinking', Date.now() + 60_000)
       mode = 'ok'
       const beforeCount = server.requests.length
       const res3 = await collect(adapter.stream(userRequest('claude-opus-4-6-thinking')))
@@ -791,9 +791,9 @@ test('auto-failover switches account on 429 / pre-flight exhaustion / in-stream 
       assert.equal(newStreamReqs[0].headers.authorization, 'Bearer ya29.acc-b')
 
       // 4. All accounts exhausted -> surfaces RATE_LIMIT without infinite loops.
-      catalog.clearAccountQuotaExhausted('proj:proj-a', 'claude-opus-4-6-thinking')
-      catalog.clearAccountQuotaExhausted('proj:proj-b', 'claude-opus-4-6-thinking')
-      catalog.clearAccountQuotaExhausted('proj:proj-c', 'claude-opus-4-6-thinking')
+      catalog.clearAccountQuotaExhausted(accountCacheKey(accA), 'claude-opus-4-6-thinking')
+      catalog.clearAccountQuotaExhausted(accountCacheKey(accB), 'claude-opus-4-6-thinking')
+      catalog.clearAccountQuotaExhausted(accountCacheKey(accC), 'claude-opus-4-6-thinking')
       mode = 'all-429'
       const beforeAll = server.requests.length
       await assert.rejects(

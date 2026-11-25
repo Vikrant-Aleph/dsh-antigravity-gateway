@@ -49,6 +49,20 @@ export interface TokenResponse {
   accessToken: string
   refreshToken?: string
   expiresAt: number
+  email?: string
+}
+
+function emailFromIdToken(idToken: unknown): string | undefined {
+  if (typeof idToken !== 'string') return undefined
+  const parts = idToken.split('.')
+  if (parts.length < 2 || !parts[1]) return undefined
+  try {
+    const json = Buffer.from(parts[1], 'base64url').toString('utf8')
+    const parsed = JSON.parse(json) as Record<string, unknown>
+    return typeof parsed.email === 'string' && parsed.email.length > 0 ? parsed.email : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function parseTokenBody(value: unknown, startedAt: number): TokenResponse {
@@ -60,10 +74,12 @@ function parseTokenBody(value: unknown, startedAt: number): TokenResponse {
     throw new GatewayError('Google token response carried no access token', 'INVALID_RESPONSE')
   }
   const expiresIn = typeof record.expires_in === 'number' && Number.isFinite(record.expires_in) ? record.expires_in : 3600
+  const email = emailFromIdToken(record.id_token)
   return {
     accessToken: record.access_token,
     ...(typeof record.refresh_token === 'string' && record.refresh_token.length > 0 ? { refreshToken: record.refresh_token } : {}),
     expiresAt: startedAt + expiresIn * 1000,
+    ...(email !== undefined ? { email } : {}),
   }
 }
 

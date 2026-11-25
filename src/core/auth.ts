@@ -222,7 +222,7 @@ export class AuthManager {
         }
         const meta = await this.discoverAccountMetadata(tokens.accessToken, controller.signal)
         const projectId = meta.projectId
-        const email = await this.fetchEmail(tokens.accessToken, controller.signal)
+        const email = (await this.fetchEmail(tokens.accessToken, controller.signal)) ?? tokens.email
         const credential: GatewayCredential = {
           refreshToken: tokens.refreshToken,
           accessToken: tokens.accessToken,
@@ -370,7 +370,7 @@ export class AuthManager {
     }
     const projectId = typeof record.projectId === 'string' ? record.projectId : undefined
     const tokens = await refreshAccessToken(this.plainFetch, record.refreshToken, signal)
-    const email = await this.fetchEmail(tokens.accessToken, signal)
+    const email = (await this.fetchEmail(tokens.accessToken, signal)) ?? tokens.email
     const credential: GatewayCredential = {
       refreshToken: tokens.refreshToken ?? record.refreshToken,
       accessToken: tokens.accessToken,

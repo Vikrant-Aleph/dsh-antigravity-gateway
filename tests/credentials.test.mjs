@@ -206,3 +206,37 @@ test('multi-account vault upgrades from v1, deduplicates identities, switches wi
     assert.equal(fs.existsSync(file), false)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('accounts sharing aicode-consumers projectId do not overwrite each other', async () => {
+  const { dir, file } = tempFile()
+  try {
+    const store = new CredentialStore({ file, logger: noopLogger })
+    await store.addAccount({
+      refreshToken: '1//alice',
+      accessToken: 'ya29.alice',
+      expiresAt: 10_000,
+      email: 'alice@gmail.com',
+      projectId: 'aicode-consumers',
+    })
+    await store.addAccount({
+      refreshToken: '1//bob',
+      accessToken: 'ya29.bob',
+      expiresAt: 20_000,
+      email: 'bob@gmail.com',
+      projectId: 'aicode-consumers',
+    })
+    // Even without email, shared projectId aicode-consumers must not merge distinct refreshTokens.
+    await store.addAccount({
+      refreshToken: '1//charlie',
+      accessToken: 'ya29.charlie',
+      expiresAt: 30_000,
+      projectId: 'aicode-consumers',
+    })
+
+    const listed = await store.listAccounts()
+    assert.equal(listed.accounts.length, 3)
+    assert.ok(listed.accounts.some((a) => a.email === 'alice@gmail.com'))
+    assert.ok(listed.accounts.some((a) => a.email === 'bob@gmail.com'))
+    assert.ok(listed.accounts.some((a) => a.refreshToken === '1//charlie'))
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})

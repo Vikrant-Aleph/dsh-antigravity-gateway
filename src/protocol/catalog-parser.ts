@@ -236,9 +236,9 @@ export function entryMatchesDefinition(entry: LiveModelEntry, definition: ModelD
 }
 
 export function accountCacheKey(info: { id?: string; projectId?: string; email?: string } | undefined): string {
-  if (info?.projectId) return `proj:${info.projectId}`
-  if (info?.email) return `email:${createHash('sha256').update(info.email).digest('hex').slice(0, 16)}`
+  if (info?.email) return `email:${createHash('sha256').update(info.email.trim().toLowerCase()).digest('hex').slice(0, 16)}`
   if (info?.id) return `acct:${info.id}`
+  if (info?.projectId) return `proj:${info.projectId}`
   return 'default'
 }
 

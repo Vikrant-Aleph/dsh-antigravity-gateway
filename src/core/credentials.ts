@@ -128,11 +128,21 @@ function serializeVault(vault: CredentialVault): unknown {
   return vault
 }
 
+const SHARED_PROJECT_IDS = new Set(['aicode-consumers', 'inductive-dreamer-qrkws'])
+
 function sameAccountIdentity(existing: GatewayAccountRecord, incoming: GatewayCredential): boolean {
-  if (existing.email && incoming.email && existing.email.trim().toLowerCase() === incoming.email.trim().toLowerCase()) {
-    return true
+  const existingEmail = existing.email?.trim().toLowerCase()
+  const incomingEmail = incoming.email?.trim().toLowerCase()
+  if (existingEmail && incomingEmail) {
+    return existingEmail === incomingEmail
   }
-  if (existing.projectId && incoming.projectId && existing.projectId === incoming.projectId) {
+  if (
+    existing.projectId &&
+    incoming.projectId &&
+    !SHARED_PROJECT_IDS.has(existing.projectId) &&
+    !SHARED_PROJECT_IDS.has(incoming.projectId) &&
+    existing.projectId === incoming.projectId
+  ) {
     return true
   }
   return existing.refreshToken === incoming.refreshToken
