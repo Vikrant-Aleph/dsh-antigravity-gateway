@@ -3,10 +3,10 @@
 ## Current State
 - 当前阶段：Phase 2（基线护网与渐进式分层重构）
 - 授权状态：方案已批准（用户于 2026-11-26 正式批准 `PLAN.md` 及 `D-001`~`D-006`，授权执行 Phase 2–5）
-- 当前任务：P2-003（迁移并拆分 `src/protocol/` 纯协议层）
+- 当前任务：P2-004（新增 `tests/architecture.test.mjs` 分层依赖守卫测试）
 - 基准提交：`aedfa19f7bafd5f6a70c40a00c57b4f7fc5536f8`
 - 当前分支与 HEAD：`refactor/modular-architecture`
-- 最近更新时间：2026-11-26 01:13 +08:00
+- 最近更新时间：2026-11-26 01:18 +08:00
 
 ## Task List
 | ID | 任务 | 依赖 | 状态 | 验证证据 / 阻塞原因 |
@@ -20,8 +20,8 @@
 | P1-003 | 向用户汇报审计结论、实施方案与待决决策并等待批准 | P1-001, P1-002 | DONE | 用户于 2026-11-26 正式批准 `PLAN.md` 与 `D-001`~`D-006`，授权执行 Phase 2–5 |
 | P2-001 | 修复 `package.json` 测试脚本隐患并补齐 0 覆盖模块特征测试 | P1-003 | DONE | `npm run typecheck` (0) + `npm test`（含 `build` + `test:only`，119/119 pass） |
 | P2-002 | 建立 `src/shared/` 共享基础与契约层 | P2-001 | DONE | `npm run typecheck` (0) + `npm test`（119/119 pass） |
-| P2-003 | 迁移并拆分 `src/protocol/` 纯协议层 | P2-002 | IN_PROGRESS | 进行中 |
-| P2-004 | 新增 `tests/architecture.test.mjs` 分层依赖守卫测试 | P2-003 | TODO | 等待 Phase 2 授权 |
+| P2-003 | 迁移并拆分 `src/protocol/` 纯协议层 | P2-002 | DONE | `npm run typecheck` (0) + `npm test`（119/119 pass） |
+| P2-004 | 新增 `tests/architecture.test.mjs` 分层依赖守卫测试 | P2-003 | IN_PROGRESS | 进行中 |
 | P2-005 | 迁移并拆解 `src/core/` 运行时核心服务层 | P2-004 | TODO | 等待 Phase 2 授权 |
 | P2-006 | 建立 `src/dsh/` 适配层、收敛 `src/index.ts` 薄入口并清理旧文件 | P2-005 | TODO | 等待 Phase 2 授权 |
 | P3-001 | P0 缺陷闭环（卸载取消登录、统一 RPC/完整 dispose/守卫、刷新取消解耦） | P2-006 | TODO | 等待 Phase 2/3 授权 |
@@ -44,7 +44,11 @@
 - `P0-004`：创建根目录 `AGENTS.md`、`docs/refactoring/DECISIONS.md`、`docs/refactoring/PROGRESS.md`。
 - `P1-001`：完成 `docs/refactoring/AUDIT.md`。
 - `P1-003`：向用户汇报审计与方案；用户于 2026-11-26 正式批准 `PLAN.md` 与 `D-001`~`D-006`，已切换至独立重构分支 `refactor/modular-architecture`。
+- `P1-002`：完成 `docs/refactoring/PLAN.md`。
+- `P1-003`：向用户汇报审计与方案；用户于 2026-11-26 正式批准 `PLAN.md` 与 `D-001`~`D-006`，已切换至独立重构分支 `refactor/modular-architecture`。
+- `P2-001`：修复 `package.json`（新增 `test:only: node --test "tests/*.test.mjs"`，`test` 改为 `npm run build && npm run test:only`），补齐 4 个 0 覆盖模块特征测试 `tests/{prompt-compat,commands,log-service,index}.test.mjs`，全量 119/119 离线测试通过。
 - `P2-002`：新增 `src/shared/{errors,guards,fs-atomic,rpc-contracts}.ts`（零内部/宿主依赖，`GatewayError` 与 `@deprecated BridgeError` 别名就位）；`src/errors.ts` 暂改为重导出过渡；`npm run typecheck` 与 `npm test`（119/119）通过。
+- `P2-003`：建立 `src/protocol/{constants,models,session-metadata,schema-sanitizer,payload,response,catalog-parser}.ts` 纯协议层（零宿主/网络/FS 依赖；`buildRequestMetadata` 支持直接复用已解析的 `ResolvedRoute`）；旧根文件暂保留过渡重导出；`npm run typecheck` 与 `npm test`（119/119）通过。
 
 ## Work in Progress
 - `P1-003`：等待向用户汇报审计结论、目标架构、实施计划及 `D-001`~`D-006` 决策确认。
