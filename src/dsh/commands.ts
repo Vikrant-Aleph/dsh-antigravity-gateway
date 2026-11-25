@@ -23,18 +23,22 @@ export interface CommandDeps {
 
 const USAGE = [
   'Usage: /agw <action>',
-  '  status   Show login and catalog status (default)',
-  '  login    Start Google OAuth sign-in (opens the browser)',
-  '  cancel   Cancel a pending sign-in',
-  '  logout   Remove the locally stored credential',
-  '  import   Import the active account from dsh-antigravity-auth',
-  '  models   List the models offered to this account',
-  '  refresh  Force a live catalog refresh',
+  '  status            Show login, accounts, and catalog status (default)',
+  '  accounts          List all signed-in accounts',
+  '  switch <target>   Switch active account by index (1..N), email, or id',
+  '  login             Start Google OAuth sign-in (opens the browser)',
+  '  cancel            Cancel a pending sign-in',
+  '  logout [all]      Remove active account (or "all" for every account)',
+  '  import            Import the active account from dsh-antigravity-auth',
+  '  models            List the models offered to the active account',
+  '  refresh           Force a live catalog refresh',
 ].join('\n')
 
 async function run(deps: CommandDeps, rawInput: string): Promise<{ kind: 'success' | 'error'; text: string }> {
   const logger = deps.logger ?? noopLogger
-  const action = rawInput.trim().split(/\s+/)[0]?.toLowerCase() || 'status'
+  const tokens = rawInput.trim().split(/\s+/).filter(Boolean)
+  const action = tokens[0]?.toLowerCase() || 'status'
+  const arg = tokens[1]
   if (deps.accountMode === 'blocked') {
     return { kind: 'error', text: LOOPBACK_REQUIRED_MESSAGE }
   }
@@ -46,11 +50,13 @@ async function run(deps: CommandDeps, rawInput: string): Promise<{ kind: 'succes
           status.tier?.current ? `${status.tier.current.name ?? status.tier.current.id} (${status.tier.current.id})` : undefined,
           status.tier?.paid ? `paid: ${status.tier.paid.name ?? status.tier.paid.id}` : undefined,
         ].filter((item): item is string => item !== undefined)
+        const accountCount = status.accounts?.length ?? (status.loggedIn ? 1 : 0)
         const lines = [
           `Antigravity Gateway: ${status.loggedIn ? 'signed in' : 'not signed in'}`,
           `credential backend: ${status.backend}`,
           ...(status.email ? [`account: ${status.email}`] : []),
           ...(status.projectId ? [`project: ${status.projectId}`] : []),
+          ...(accountCount > 1 ? [`accounts configured: ${accountCount} (auto-switch: ${status.autoSwitchAccount ? 'on' : 'off'})`] : []),
           ...(tierParts.length > 0 ? [`plan tier: ${tierParts.join(', ')}`] : []),
           ...(status.expiresAt !== undefined ? [`access token expires: ${new Date(status.expiresAt).toISOString()}`] : []),
           ...(status.loginPending ? ['a sign-in is pending; complete it in the browser or /agw cancel'] : []),
@@ -58,6 +64,37 @@ async function run(deps: CommandDeps, rawInput: string): Promise<{ kind: 'succes
           ...(!status.loggedIn && !status.loginPending ? ['run /agw login, or /agw import to reuse a dsh-antigravity-auth account'] : []),
         ]
         return { kind: 'success', text: lines.join('\n') }
+      }
+      case 'accounts': {
+        const status = await deps.account.status()
+        const accounts = status.accounts ?? []
+        if (accounts.length === 0) {
+          return { kind: 'success', text: 'No accounts signed in. Run /agw login or /agw import.' }
+        }
+        const lines = accounts.map((acct, index) => {
+          const mark = acct.active ? '*' : ' '
+          const label = acct.email ?? acct.projectId ?? acct.id
+          const proj = acct.projectId && acct.email ? ` (project: ${acct.projectId})` : ''
+          return `${mark} ${index + 1}. ${label}${proj} [${acct.id}]`
+        })
+        return { kind: 'success', text: [`Signed-in accounts (${accounts.length}):`, ...lines].join('\n') }
+      }
+      case 'switch': {
+        if (!arg) {
+          return { kind: 'error', text: 'Usage: /agw switch <index|email|id>' }
+        }
+        const status = await deps.account.status()
+        const accounts = status.accounts ?? []
+        let target = accounts.find((a) => a.id === arg || a.email?.toLowerCase() === arg.toLowerCase())
+        if (!target && /^\d+$/.test(arg)) {
+          const idx = Number(arg) - 1
+          if (idx >= 0 && idx < accounts.length) target = accounts[idx]
+        }
+        if (!target) {
+          return { kind: 'error', text: `No matching account for "${arg}". Run /agw accounts to list signed-in accounts.` }
+        }
+        const { active } = await deps.account.switch(target.id)
+        return { kind: 'success', text: `Switched active account to ${active.email ?? active.projectId ?? active.id}.` }
       }
       case 'login': {
         const { url } = await deps.account.login()
@@ -76,8 +113,16 @@ async function run(deps: CommandDeps, rawInput: string): Promise<{ kind: 'succes
         return { kind: 'success', text: cancelled ? 'Pending sign-in cancelled.' : 'No sign-in is pending.' }
       }
       case 'logout': {
-        await deps.account.logout()
-        return { kind: 'success', text: 'Signed out. The local credential was removed (the Google grant itself is not revoked).' }
+        const all = arg?.toLowerCase() === 'all'
+        const res = await deps.account.logout({ all })
+        return {
+          kind: 'success',
+          text: all
+            ? 'Signed out of all accounts. Local credentials were removed.'
+            : res.activeAccountId
+              ? `Removed the active account and switched to ${res.activeAccountId}.`
+              : 'Signed out. The local credential was removed (the Google grant itself is not revoked).',
+        }
       }
       case 'import': {
         const result = await deps.account.import()
@@ -149,8 +194,8 @@ export function registerCommands(ctx: CommandContext, deps: CommandDeps): () => 
   const disposers: (() => void)[] = []
   const definition = (name: string): CommandDefinitionLike => ({
     name,
-    description: 'Antigravity Gateway account and model catalog controls (status|login|cancel|logout|import|models|refresh)',
-    input: { hint: '[status|login|cancel|logout|import|models|refresh]' },
+    description: 'Antigravity Gateway account and model catalog controls (status|accounts|switch|login|cancel|logout|import|models|refresh)',
+    input: { hint: '[status|accounts|switch|login|cancel|logout|import|models|refresh]' },
     handler: async ({ rawInput }) => run(deps, rawInput),
   })
   for (const name of ['antigravity-gateway', 'agw']) {

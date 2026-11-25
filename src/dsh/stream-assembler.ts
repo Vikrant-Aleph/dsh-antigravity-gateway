@@ -13,7 +13,7 @@ import type { GatewayLogger } from '../core/logger.js'
 import { iterateSse } from '../core/transport/index.js'
 import type { ResolvedRoute } from '../protocol/models.js'
 import { mapFinishReason, parseProviderEvent, type ProviderUsage } from '../protocol/response.js'
-import { isGatewayError } from '../shared/errors.js'
+import { GatewayError, isGatewayError } from '../shared/errors.js'
 
 interface BlockState {
   index: number
@@ -168,6 +168,15 @@ export async function* assembleStreamChunks(options: {
   if (usage !== undefined) yield { type: 'usage', usage }
 
   if (eventError !== undefined) {
+    const isQuotaError =
+      eventError.status === 429 ||
+      eventError.code === 429 ||
+      /RESOURCE_EXHAUSTED|quota/i.test(`${String(eventError.code ?? '')} ${eventError.message}`)
+    if (!hasEmitted.value && isQuotaError) {
+      throw new GatewayError(eventError.message || 'Antigravity rate limit reached', 'RATE_LIMIT', {
+        status: 429,
+      })
+    }
     const code = eventError.contextWindowExceeded === true
       ? 'CONTEXT_WINDOW_EXCEEDED'
       : typeof eventError.status === 'number' && eventError.status >= 400

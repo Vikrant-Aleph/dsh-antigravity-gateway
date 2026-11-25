@@ -699,3 +699,114 @@ test('mid-stream abort exits immediately, post-emit stream error does not retry,
     }
   }
 })
+
+test('auto-failover switches account on 429 / pre-flight exhaustion / in-stream quota error while keeping the selected model', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agb-failover-'))
+  const file = path.join(dir, 'credential.json')
+  try {
+    const store = new CredentialStore({ file })
+    const accA = await store.addAccount({ refreshToken: '1//a', accessToken: 'ya29.acc-a', expiresAt: Date.now() + 3_600_000, projectId: 'proj-a', email: 'a@example.com' })
+    const accB = await store.addAccount({ refreshToken: '1//b', accessToken: 'ya29.acc-b', expiresAt: Date.now() + 3_600_000, projectId: 'proj-b', email: 'b@example.com' })
+    const accC = await store.addAccount({ refreshToken: '1//c', accessToken: 'ya29.acc-c', expiresAt: Date.now() + 3_600_000, projectId: 'proj-c', email: 'c@example.com' })
+    await store.setActiveAccount(accA.id)
+
+    let mode = '429-on-a'
+    let updatedNotifications = 0
+    const server = await startServer((record, res) => {
+      const authHeader = record.headers.authorization
+      if (record.url.startsWith('/v1internal:streamGenerateContent')) {
+        if (mode === '429-on-a' && authHeader === 'Bearer ya29.acc-a') {
+          res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '120' })
+          res.end(JSON.stringify({ error: { code: 429, message: 'Quota exceeded for account A' } }))
+          return
+        }
+        if (mode === 'stream-429-on-b' && authHeader === 'Bearer ya29.acc-b') {
+          res.writeHead(200, SSE_HEADERS)
+          res.end(sseBody([{ error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: '5h quota exhausted' } }]))
+          return
+        }
+        if (mode === 'all-429') {
+          res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '30' })
+          res.end(JSON.stringify({ error: { code: 429, message: 'All exhausted' } }))
+          return
+        }
+        res.writeHead(200, SSE_HEADERS)
+        res.end(sseBody(TEXT_EVENTS))
+        return
+      }
+      defaultHandler(record, res)
+    })
+
+    const transport = new AgyTransport({ requestTimeoutMs: 5000 })
+    const auth = new AuthManager({ store, transport, logger: noopLogger, endpoints: [server.url] })
+    const catalog = new ModelCatalog(auth, transport, {
+      ttlMs: 60_000,
+      endpoints: [server.url],
+      logger: noopLogger,
+      onUpdated: () => { updatedNotifications += 1 },
+    })
+    const adapter = new AntigravityGatewayAdapter({
+      providers: ['antigravity-gateway'],
+      auth,
+      catalog,
+      transport,
+      endpoints: [server.url],
+      logger: noopLogger,
+      autoSwitchAccount: true,
+    })
+
+    try {
+      // 1. Reactive 429 on accA switches to accB keeping exact model + reasoningEffort.
+      const res1 = await collect(adapter.stream(userRequest('claude-opus-4-6-thinking', { reasoningEffort: 'high' })))
+      assert.equal(res1.at(-1).reason.kind, 'stop')
+      assert.equal((await auth.status()).activeAccountId, accB.id)
+      const streamReqs1 = server.requests.filter((r) => r.url.startsWith('/v1internal:streamGenerateContent'))
+      assert.equal(streamReqs1.length, 2)
+      assert.equal(streamReqs1[0].headers.authorization, 'Bearer ya29.acc-a')
+      assert.equal(streamReqs1[1].headers.authorization, 'Bearer ya29.acc-b')
+      assert.equal(streamReqs1[1].body.model, 'claude-opus-4-6-thinking')
+      assert.equal(streamReqs1[1].body.request.generationConfig.thinkingConfig.thinkingBudget, 32_768)
+      assert.ok(updatedNotifications >= 1)
+
+      // 2. Concurrent requests on accB hitting in-stream 429 failover with CAS to accC (never double-skipping C).
+      mode = 'stream-429-on-b'
+      const [c1, c2] = await Promise.all([
+        collect(adapter.stream(userRequest('claude-opus-4-6-thinking'))),
+        collect(adapter.stream(userRequest('claude-opus-4-6-thinking'))),
+      ])
+      assert.equal(c1.at(-1).reason.kind, 'stop')
+      assert.equal(c2.at(-1).reason.kind, 'stop')
+      assert.equal((await auth.status()).activeAccountId, accC.id)
+
+      // 3. Proactive pre-flight failover: mark accC exhausted -> switches immediately without hitting server for accC.
+      catalog.clearAccountQuotaExhausted('proj:proj-b', 'claude-opus-4-6-thinking')
+      catalog.markAccountQuotaExhausted('proj:proj-c', 'claude-opus-4-6-thinking', Date.now() + 60_000)
+      mode = 'ok'
+      const beforeCount = server.requests.length
+      const res3 = await collect(adapter.stream(userRequest('claude-opus-4-6-thinking')))
+      assert.equal(res3.at(-1).reason.kind, 'stop')
+      assert.equal((await auth.status()).activeAccountId, accB.id)
+      const newStreamReqs = server.requests.slice(beforeCount).filter((r) => r.url.startsWith('/v1internal:streamGenerateContent'))
+      assert.equal(newStreamReqs.length, 1)
+      assert.equal(newStreamReqs[0].headers.authorization, 'Bearer ya29.acc-b')
+
+      // 4. All accounts exhausted -> surfaces RATE_LIMIT without infinite loops.
+      catalog.clearAccountQuotaExhausted('proj:proj-a', 'claude-opus-4-6-thinking')
+      catalog.clearAccountQuotaExhausted('proj:proj-b', 'claude-opus-4-6-thinking')
+      catalog.clearAccountQuotaExhausted('proj:proj-c', 'claude-opus-4-6-thinking')
+      mode = 'all-429'
+      const beforeAll = server.requests.length
+      await assert.rejects(
+        collect(adapter.stream(userRequest('claude-opus-4-6-thinking'))),
+        (err) => err.code === 'RATE_LIMIT' && err.failure.providerRetryAfterMs === 30_000,
+      )
+      const allReqs = server.requests.slice(beforeAll).filter((r) => r.url.startsWith('/v1internal:streamGenerateContent'))
+      assert.equal(allReqs.length, 3)
+    } finally {
+      await server.close()
+      await transport.close()
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

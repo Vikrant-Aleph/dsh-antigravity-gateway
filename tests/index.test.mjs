@@ -129,6 +129,7 @@ test('plugin exports expected Cordis metadata, Config defaults, and deprecated B
   assert.deepEqual(defaults.providers, ['antigravity-gateway'])
   assert.equal(defaults.oauthPort, 51121)
   assert.equal(defaults.promptCompatibility, true)
+  assert.equal(defaults.autoSwitchAccount, true)
   assert.equal(defaults.imageInput, true)
   assert.equal(defaults.useSystemProxy, true)
   assert.equal(defaults.logLevel, 'info')

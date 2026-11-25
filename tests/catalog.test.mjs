@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { parseLiveCatalog, parseLiveModelIds, parseQuotaSummary, definitionAvailable, ModelCatalog } from '../lib/core/catalog.js'
+import { parseLiveCatalog, parseLiveModelIds, parseQuotaSummary, definitionAvailable, selectQuotaForModel, ModelCatalog } from '../lib/core/catalog.js'
 import { MODEL_DEFINITIONS, getDefinition } from '../lib/protocol/models.js'
 
 test('parseLiveModelIds accepts both envelope shapes and modelName aliases', () => {
@@ -318,4 +318,78 @@ test('list() refresh after TTL expiry resets cachedFullReport so getAvailability
   const r2 = await catalog.getAvailabilityReport()
   assert.equal(quotaCalls, 2)
   assert.equal(r2.quotaGroups[0].buckets[0].remainingFraction, 0.4)
+})
+
+test('selectQuotaForModel matches family 5h bucket and respects lower per-model fraction', () => {
+  const report = {
+    quotaGroups: [
+      { displayName: 'Claude', buckets: [{ bucketId: 'claude-5h', displayName: 'Five Hour', window: '5h', remainingFraction: 0.87, resetTime: '2026-11-26T08:00:00Z' }] },
+      { displayName: 'Gemini', buckets: [{ bucketId: 'gemini-5h', displayName: 'Five Hour', window: '5h', remainingFraction: 0.42 }] },
+    ],
+    available: [
+      { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', efforts: [], contextWindow: 1000, maxOutputTokens: 100, status: 'available', remainingFraction: 0.87 },
+      { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6', efforts: [], contextWindow: 1000, maxOutputTokens: 100, status: 'quota-exhausted', remainingFraction: 0 },
+      { id: 'gpt-oss-120b-medium', name: 'GPT-OSS', efforts: [], contextWindow: 1000, maxOutputTokens: 100, status: 'available', remainingFraction: 0.65, resetTime: '2026-11-26T09:00:00Z' },
+    ],
+  }
+  const sonnetQuota = selectQuotaForModel(report, 'claude-sonnet-5-5')
+  assert.equal(sonnetQuota.window, '5h')
+  assert.equal(sonnetQuota.remainingFraction, 0.87)
+  assert.equal(sonnetQuota.resetTime, '2026-11-26T08:00:00Z')
+
+  const opusQuota = selectQuotaForModel(report, 'claude-opus-4-6-thinking')
+  assert.equal(opusQuota.remainingFraction, 0)
+
+  const gptQuota = selectQuotaForModel(report, 'gpt-oss-120b-medium')
+  assert.equal(gptQuota.window, 'model')
+  assert.equal(gptQuota.remainingFraction, 0.65)
+})
+
+test('catalog isolates multi-account disk caches and selects highest-quota eligible failover account', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-cat-multi-'))
+  const cacheFile = path.join(dir, 'catalog-cache.json')
+  try {
+    let active = { id: 'a1', email: 'a1@example.com', projectId: 'proj-1' }
+    const auth = {
+      async status() { return { loggedIn: true, activeAccountId: active.id, ...active } },
+      async getCredential() { return { ...active, refreshToken: '1//x', accessToken: 'ya29.x', expiresAt: Date.now() + 3_600_000 } },
+    }
+    const transport = {
+      async request() {
+        const models =
+          active.id === 'a1'
+            ? { 'claude-sonnet-5-5-medium': { quotaInfo: { remainingFraction: 0.1 } } }
+            : { 'claude-sonnet-5-5-medium': { quotaInfo: { remainingFraction: 0.9 } }, 'gemini-4-neon-high': {} }
+        return new Response(JSON.stringify({ models }), { status: 200 })
+      },
+    }
+    const catalog = new ModelCatalog(auth, transport, { ttlMs: 60_000, cacheFile })
+    await catalog.getAvailabilityReport()
+    active = { id: 'a2', email: 'a2@example.com', projectId: 'proj-2' }
+    await catalog.getAvailabilityReport()
+
+    // Disk file preserves both accounts independently.
+    const rawDisk = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
+    assert.equal(rawDisk.version, 2)
+    assert.ok(rawDisk.entries['proj:proj-1'])
+    assert.ok(rawDisk.entries['proj:proj-2'])
+
+    const accounts = [
+      { id: 'a1', email: 'a1@example.com', projectId: 'proj-1', active: true },
+      { id: 'a2', email: 'a2@example.com', projectId: 'proj-2', active: false },
+      { id: 'a3', email: 'a3@example.com', projectId: 'proj-3', active: false },
+    ]
+    const best = catalog.selectBestAccountForModel(accounts, 'a1', 'claude-sonnet-5-5', new Set())
+    assert.equal(best.id, 'a2')
+
+    // Mark a2 exhausted -> falls back to unprobed a3; mark a3 exhausted -> undefined.
+    catalog.markAccountQuotaExhausted('proj:proj-2', 'claude-sonnet-5-5', Date.now() + 60_000)
+    const fallback = catalog.selectBestAccountForModel(accounts, 'a1', 'claude-sonnet-5-5', new Set())
+    assert.equal(fallback.id, 'a3')
+
+    catalog.markAccountQuotaExhausted('proj:proj-3', 'claude-sonnet-5-5', Date.now() + 60_000)
+    assert.equal(catalog.selectBestAccountForModel(accounts, 'a1', 'claude-sonnet-5-5', new Set()), undefined)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })

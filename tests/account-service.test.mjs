@@ -111,7 +111,7 @@ test('account RPC serves status/models on a loopback-bound host', async () => {
   const { service } = stubAccount()
   const { ctx, routes } = fakeContext({ host: '127.0.0.1' })
   registerAccountAccess(ctx, service, noopLogger)
-  assert.equal(routes.size, 6)
+  assert.equal(routes.size, 7)
   const status = await callRoute(routes, 'status')
   assert.equal(status.ok, true)
   assert.equal(status.value.loggedIn, false)
@@ -123,7 +123,7 @@ test('account RPC fails closed on a non-loopback host without touching the servi
   const { service, calls } = stubAccount()
   const { ctx, routes } = fakeContext({ host: '0.0.0.0' })
   registerAccountAccess(ctx, service, noopLogger)
-  for (const endpoint of ['status', 'login', 'cancel', 'logout', 'import', 'models']) {
+  for (const endpoint of ['status', 'login', 'cancel', 'logout', 'import', 'models', 'switch']) {
     const result = await callRoute(routes, endpoint)
     assert.equal(result.ok, false)
     assert.equal(result.error.code, 'loopback-required')
@@ -254,7 +254,7 @@ test('registerAccountAccess disposer removes all RPC routes and disposes the inj
   const { service } = stubAccount()
   const fake = fakeContext({ host: '127.0.0.1' })
   const dispose = registerAccountAccess(fake.ctx, service, noopLogger)
-  assert.equal(fake.routes.size, 6)
+  assert.equal(fake.routes.size, 7)
   dispose()
   assert.equal(fake.routes.size, 0)
   assert.equal(fake.fiberDisposed, 1)
@@ -296,4 +296,61 @@ test('account RPC evaluates webServer loopback policy dynamically when webServer
   } finally {
     dispose()
   }
+})
+
+test('account RPC switch validates accountId, switches account, and notifies catalog', async () => {
+  const events = []
+  const auth = {
+    async status() {
+      return {
+        loggedIn: true,
+        backend: 'file',
+        loginPending: false,
+        activeAccountId: 'a2',
+        accounts: [
+          { id: 'a1', email: 'a1@example.com', active: false },
+          { id: 'a2', email: 'a2@example.com', active: true },
+        ],
+      }
+    },
+    async switchAccount(id) {
+      events.push(['switch', id])
+      return { id, email: `${id}@example.com`, active: true }
+    },
+    async logout(id, all) {
+      events.push(['logout', id, all])
+    },
+  }
+  const catalog = {
+    invalidate(k) { events.push(['invalidate', k]) },
+    onActiveAccountChanged() { events.push(['changed']) },
+    async list() { return [] },
+  }
+  const service = new AccountService({
+    auth,
+    catalog,
+    oauthPort: 0,
+    loginTimeoutMs: 10_000,
+    providers: ['antigravity-gateway', 'custom-agw'],
+    autoSwitchAccount: true,
+  })
+  const { ctx, routes } = fakeContext({ host: '127.0.0.1' })
+  registerAccountAccess(ctx, service, noopLogger)
+
+  const badSwitch = await callRoute(routes, 'switch', {})
+  assert.equal(badSwitch.ok, false)
+  assert.equal(badSwitch.error.code, 'bad-request')
+
+  const okSwitch = await callRoute(routes, 'switch', { accountId: 'a2' })
+  assert.equal(okSwitch.ok, true)
+  assert.equal(okSwitch.value.active.id, 'a2')
+  assert.ok(events.some((e) => e[0] === 'switch' && e[1] === 'a2'))
+  assert.ok(events.some((e) => e[0] === 'changed'))
+
+  const st = await callRoute(routes, 'status')
+  assert.deepEqual(st.value.providers, ['antigravity-gateway', 'custom-agw'])
+  assert.equal(st.value.autoSwitchAccount, true)
+
+  await callRoute(routes, 'logout', { accountId: 'a1' })
+  assert.ok(events.some((e) => e[0] === 'logout' && e[1] === 'a1' && e[2] === false))
 })

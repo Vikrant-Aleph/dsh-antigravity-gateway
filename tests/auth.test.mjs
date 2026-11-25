@@ -183,3 +183,47 @@ test('logout() during an in-flight refresh prevents stale credential write-back'
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('AuthManager manages multiple accounts, isolated refreshes, switchAccount, and per-account logout', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-auth-multi-'))
+  try {
+    const file = path.join(dir, 'cred.json')
+    const store = new CredentialStore({ file, logger: noopLogger })
+    const acc1 = await store.addAccount({ refreshToken: '1//one', accessToken: 'ya29.one', expiresAt: Date.now() + 3_600_000, email: 'one@example.com', projectId: 'p1' })
+    const acc2 = await store.addAccount({ refreshToken: '1//two', accessToken: 'ya29.expired', expiresAt: 1, email: 'two@example.com', projectId: 'p2' }, { activate: false })
+
+    const transport = new AgyTransport({})
+    const plainFetch = async (_url, init) => {
+      const form = new URLSearchParams(String(init?.body ?? ''))
+      const rt = form.get('refresh_token')
+      return new Response(JSON.stringify({ access_token: `ya29.refreshed.${rt}`, expires_in: 3600 }), { status: 200 })
+    }
+    const auth = new AuthManager({ store, transport, plainFetch, logger: noopLogger })
+
+    const st1 = await auth.status()
+    assert.equal(st1.loggedIn, true)
+    assert.equal(st1.email, 'one@example.com')
+    assert.equal(st1.accounts.length, 2)
+    assert.equal(st1.activeAccountId, acc1.id)
+
+    // Background refresh for acc2 does not alter active acc1.
+    const refreshed2 = await auth.getCredentialForAccount(acc2.id)
+    assert.equal(refreshed2.accessToken, 'ya29.refreshed.1//two')
+    assert.equal((await auth.getCredential()).email, 'one@example.com')
+
+    await auth.switchAccount(acc2.id)
+    assert.equal((await auth.status()).email, 'two@example.com')
+
+    // Removing acc1 leaves acc2 active.
+    await auth.logout(acc1.id)
+    const st2 = await auth.status()
+    assert.equal(st2.accounts.length, 1)
+    assert.equal(st2.email, 'two@example.com')
+
+    await auth.logout(undefined, true)
+    assert.equal((await auth.status()).loggedIn, false)
+    await transport.close()
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

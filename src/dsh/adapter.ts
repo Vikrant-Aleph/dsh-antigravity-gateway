@@ -16,7 +16,7 @@ import {
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { AuthManager } from '../core/auth.js'
-import type { ModelCatalog } from '../core/catalog.js'
+import { accountCacheKey, type ModelCatalog } from '../core/catalog.js'
 import type { GatewayLogger } from '../core/logger.js'
 import { noopLogger } from '../core/logger.js'
 import { AgyTransport, cancelResponse, readBoundedText } from '../core/transport/index.js'
@@ -56,6 +56,8 @@ export interface AdapterOptions {
   maxImageBytes?: number
   /** Diagnostic: append every outgoing envelope to this file. Never default. */
   dumpRequestsTo?: string
+  /** Automatically switch to another account when quota is exhausted. @default true */
+  autoSwitchAccount?: boolean
   /** Test seam: override base delay for 503 capacity backoff. */
   capacityRetryBaseDelayMs?: number
 }
@@ -171,9 +173,71 @@ export class AntigravityGatewayAdapter extends LlmAdapter {
     }
 
     const hasEmitted = { value: false }
+    const autoSwitch = this.options.autoSwitchAccount ?? true
+    const triedAccountIds = new Set<string>()
     let authReplayed = false
     let capacityAttempt = 0
     const startedAt = Date.now()
+
+    const tryFailover = async (
+      failedAccountId: string | undefined,
+      failedAccountKey: string,
+      cooldownUntilMs: number,
+    ): Promise<boolean> => {
+      this.options.catalog.markAccountQuotaExhausted?.(failedAccountKey, resolved.modelId, cooldownUntilMs)
+      if (failedAccountId) triedAccountIds.add(failedAccountId)
+      if (
+        !autoSwitch ||
+        hasEmitted.value ||
+        signal?.aborted ||
+        typeof this.options.auth.listAccounts !== 'function'
+      ) {
+        return false
+      }
+      const accounts = await this.options.auth.listAccounts()
+      if (accounts.length <= 1) return false
+
+      const status = typeof this.options.auth.status === 'function' ? await this.options.auth.status() : undefined
+      const currentActiveId = status?.activeAccountId
+      if (failedAccountId && currentActiveId && currentActiveId !== failedAccountId && !triedAccountIds.has(currentActiveId)) {
+        return true
+      }
+
+      const candidate = this.options.catalog.selectBestAccountForModel?.(
+        accounts,
+        failedAccountId ?? currentActiveId ?? '',
+        resolved.modelId,
+        triedAccountIds,
+      )
+      if (!candidate) return false
+
+      let switched = false
+      if (failedAccountId && typeof this.options.auth.switchAccountIfCurrent === 'function') {
+        switched = await this.options.auth.switchAccountIfCurrent(failedAccountId, candidate.id)
+        if (!switched) {
+          const latest = await this.options.auth.status?.()
+          if (latest?.activeAccountId && latest.activeAccountId !== failedAccountId && !triedAccountIds.has(latest.activeAccountId)) {
+            return true
+          }
+          if (typeof this.options.auth.switchAccount === 'function') {
+            await this.options.auth.switchAccount(candidate.id)
+            switched = true
+          }
+        }
+      } else if (typeof this.options.auth.switchAccount === 'function') {
+        await this.options.auth.switchAccount(candidate.id)
+        switched = true
+      }
+      if (!switched) return false
+
+      this.options.catalog.onActiveAccountChanged?.()
+      this.logger.info('request', 'quota exhausted; switched to backup account', {
+        model: resolved.modelId,
+        fromAccountId: failedAccountId ?? 'unknown',
+        toAccountId: candidate.id,
+      })
+      return true
+    }
 
     for (;;) {
       let credential
@@ -184,6 +248,27 @@ export class AntigravityGatewayAdapter extends LlmAdapter {
       }
       if (!credential) {
         throw new LlmError('Antigravity login is required; run /agw login (or /agw import)', 'AUTH')
+      }
+
+      const accountId = 'id' in credential && typeof credential.id === 'string' ? credential.id : undefined
+      const accountKey = accountCacheKey(credential)
+      if (
+        autoSwitch &&
+        !hasEmitted.value &&
+        !triedAccountIds.has(accountId ?? '') &&
+        this.options.catalog.isAccountQuotaExhausted?.(accountKey, resolved.modelId)
+      ) {
+        const detail = this.options.catalog.getModelDetail?.(resolved.modelId, accountKey)
+        const resetMs =
+          detail && 'resetTime' in detail && typeof detail.resetTime === 'string'
+            ? Date.parse(detail.resetTime)
+            : Number.NaN
+        const until = Number.isFinite(resetMs) ? resetMs : Date.now() + 60_000
+        if (await tryFailover(accountId, accountKey, until)) {
+          authReplayed = false
+          capacityAttempt = 0
+          continue
+        }
       }
 
       const sessionKey = requestSessionKey(options.sessionId)
@@ -262,6 +347,12 @@ export class AntigravityGatewayAdapter extends LlmAdapter {
           continue
         }
         if (status === 429) {
+          const until = Date.now() + (retryAfter ?? 60_000)
+          if (!hasEmitted.value && !signal?.aborted && (await tryFailover(accountId, accountKey, until))) {
+            authReplayed = false
+            capacityAttempt = 0
+            continue
+          }
           const failure = statusToError(status, errorText || 'Antigravity rate limit reached', retryAfter)
           this.logFailure(resolved, startedAt, failure)
           throw toLlmError(failure)
@@ -311,6 +402,17 @@ export class AntigravityGatewayAdapter extends LlmAdapter {
       } catch (error) {
         if (isGatewayError(error) && error.code === 'AUTH' && !authReplayed && !hasEmitted.value && !signal?.aborted) {
           authReplayed = true
+          continue
+        }
+        if (
+          isGatewayError(error) &&
+          error.code === 'RATE_LIMIT' &&
+          !hasEmitted.value &&
+          !signal?.aborted &&
+          (await tryFailover(accountId, accountKey, Date.now() + (error.providerRetryAfterMs ?? 60_000)))
+        ) {
+          authReplayed = false
+          capacityAttempt = 0
           continue
         }
         this.logFailure(resolved, startedAt, error)

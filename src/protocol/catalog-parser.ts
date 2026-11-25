@@ -11,9 +11,12 @@ import {
   canonicalDisabledModelId,
   canonicalModelId,
   definitionWireNames,
+  getDefinition,
   normalizeModelId,
   type ModelDefinition,
+  type ModelFamily,
 } from './models.js'
+import type { ModelQuotaSnapshot } from '../shared/rpc-contracts.js'
 
 const MAX_CATALOG_ENTRIES = 512
 
@@ -232,10 +235,92 @@ export function entryMatchesDefinition(entry: LiveModelEntry, definition: ModelD
   return false
 }
 
-export function accountCacheKey(info: { projectId?: string; email?: string } | undefined): string {
+export function accountCacheKey(info: { id?: string; projectId?: string; email?: string } | undefined): string {
   if (info?.projectId) return `proj:${info.projectId}`
   if (info?.email) return `email:${createHash('sha256').update(info.email).digest('hex').slice(0, 16)}`
+  if (info?.id) return `acct:${info.id}`
   return 'default'
+}
+
+function inferModelFamily(modelId: string): ModelFamily | undefined {
+  const canonical = canonicalModelId(modelId)
+  if (canonical) return getDefinition(canonical)?.family
+  const lower = normalizeModelId(modelId)
+  if (lower.startsWith('claude-')) return 'claude'
+  if (lower.startsWith('gemini-')) return 'gemini'
+  if (lower.startsWith('gpt-')) return 'gpt'
+  return undefined
+}
+
+function isFiveHourBucket(windowVal: string | undefined, displayName: string, bucketId: string): boolean {
+  if (windowVal && /^5\s*h$/i.test(windowVal.trim())) return true
+  return /\b5\s*h\b|five\s*hour/i.test(`${displayName} ${bucketId}`)
+}
+
+function groupMatchesFamily(groupName: string, bucketId: string, family: ModelFamily): boolean {
+  const haystack = `${groupName} ${bucketId}`.toLowerCase()
+  if (family === 'claude') return haystack.includes('claude')
+  if (family === 'gemini') return haystack.includes('gemini')
+  return haystack.includes('gpt') || haystack.includes('openai')
+}
+
+/**
+ * Select the compact 5-hour quota (or per-model quota fallback) for one model
+ * from a catalog availability report. Pure helper shared by backend & tests.
+ */
+export function selectQuotaForModel(
+  report: Pick<CatalogAvailabilityReport, 'quotaGroups' | 'available'>,
+  modelId: string,
+): ModelQuotaSnapshot | undefined {
+  const canonical = canonicalModelId(modelId) ?? normalizeModelId(modelId)
+  const family = inferModelFamily(modelId)
+  const modelDetail = report.available.find((item) => item.id === canonical)
+
+  let matchedBucket: QuotaBucketSummary | undefined
+  if (family !== undefined) {
+    for (const group of report.quotaGroups) {
+      for (const bucket of group.buckets) {
+        if (!isFiveHourBucket(bucket.window, bucket.displayName, bucket.bucketId)) continue
+        if (groupMatchesFamily(group.displayName, bucket.bucketId, family)) {
+          matchedBucket = bucket
+          break
+        }
+      }
+      if (matchedBucket) break
+    }
+  }
+  if (!matchedBucket) {
+    const fiveHourBuckets = report.quotaGroups.flatMap((group) =>
+      group.buckets.filter((b) => isFiveHourBucket(b.window, b.displayName, b.bucketId)),
+    )
+    if (fiveHourBuckets.length === 1) {
+      matchedBucket = fiveHourBuckets[0]
+    }
+  }
+
+  if (matchedBucket) {
+    const remaining =
+      modelDetail?.remainingFraction !== undefined
+        ? Math.min(matchedBucket.remainingFraction, modelDetail.remainingFraction)
+        : matchedBucket.remainingFraction
+    const resetTime = matchedBucket.resetTime ?? modelDetail?.resetTime
+    return {
+      window: '5h',
+      remainingFraction: remaining,
+      ...(resetTime !== undefined ? { resetTime } : {}),
+      label: matchedBucket.displayName,
+    }
+  }
+
+  if (modelDetail?.remainingFraction !== undefined) {
+    return {
+      window: 'model',
+      remainingFraction: modelDetail.remainingFraction,
+      ...(modelDetail.resetTime !== undefined ? { resetTime: modelDetail.resetTime } : {}),
+      label: modelDetail.name,
+    }
+  }
+  return undefined
 }
 
 export function defaultMaxOutput(definition: ModelDefinition): number {

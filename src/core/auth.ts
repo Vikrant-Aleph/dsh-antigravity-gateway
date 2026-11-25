@@ -1,7 +1,7 @@
 /**
- * Authentication manager: login, single-flight token refresh, project
- * discovery, and an explicit import from a sibling dsh-antigravity-auth
- * installation.
+ * Authentication manager: multi-account login, per-account single-flight
+ * token refresh, project discovery, switching, and explicit import from a
+ * sibling dsh-antigravity-auth installation.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -16,9 +16,10 @@ import {
 import { extractProjectId, parseAccountTier, type AccountTierInfo, type TierSummary } from '../protocol/catalog-parser.js'
 import { GatewayError } from '../shared/errors.js'
 import { isRecord, raceWithAbort } from '../shared/guards.js'
+import type { AccountSummary } from '../shared/rpc-contracts.js'
 import type { GatewayLogger } from './logger.js'
 import { noopLogger } from './logger.js'
-import { CredentialStore, type GatewayCredential } from './credentials.js'
+import { CredentialStore, type GatewayAccountRecord, type GatewayCredential } from './credentials.js'
 import {
   buildAuthorizationUrl,
   exchangeCode,
@@ -46,14 +47,29 @@ export interface AuthStatus {
   loginError?: string
   /** Account plan tiers reported by loadCodeAssist, when known. */
   tier?: AccountTierInfo
+  /** Active account id when signed in. */
+  activeAccountId?: string
+  /** All signed-in accounts (secrets omitted). */
+  accounts?: AccountSummary[]
 }
 
 export interface LoginHandle {
   /** Authorization URL the user can open manually. */
   url: string
   /** Resolves when the whole flow settles. */
-  done: Promise<{ email?: string; projectId?: string }>
+  done: Promise<{ email?: string; projectId?: string; accountId?: string }>
   cancel(): void
+}
+
+function toAccountSummary(record: GatewayAccountRecord, activeAccountId: string | undefined): AccountSummary {
+  return {
+    id: record.id,
+    ...(record.email ? { email: record.email } : {}),
+    ...(record.projectId ? { projectId: record.projectId } : {}),
+    ...(record.expiresAt !== undefined ? { expiresAt: record.expiresAt } : {}),
+    active: record.id === activeAccountId,
+    ...(record.addedAt !== undefined ? { addedAt: record.addedAt } : {}),
+  }
 }
 
 export class AuthManager {
@@ -62,12 +78,12 @@ export class AuthManager {
   private readonly plainFetch: FetchLike
   private readonly logger: GatewayLogger
   private readonly endpoints: readonly string[]
-  private refreshInFlight: Promise<GatewayCredential> | undefined
+  private readonly refreshInFlightByAccount = new Map<string, Promise<GatewayAccountRecord>>()
   private authGeneration = 0
-  private pendingLogin: { server: CallbackServer; controller: AbortController; done: Promise<{ email?: string; projectId?: string }> } | undefined
+  private pendingLogin: { server: CallbackServer; controller: AbortController; done: Promise<{ email?: string; projectId?: string; accountId?: string }> } | undefined
   private pendingUrl: string | undefined
   private lastLoginError: string | undefined
-  private cachedTier: AccountTierInfo | undefined
+  private readonly cachedTiers = new Map<string, AccountTierInfo>()
   private readonly openUrl: (url: string) => boolean
 
   constructor(options: {
@@ -92,16 +108,39 @@ export class AuthManager {
   }
 
   /**
-   * A usable credential, refreshing when the access token is missing or
-   * near expiry. Concurrent callers share one refresh; cancelling one caller
-   * never aborts the shared refresh for others.
+   * A usable credential for the active account, refreshing when the access
+   * token is missing or near expiry. Concurrent callers share one refresh;
+   * cancelling one caller never aborts the shared refresh for others.
    */
-  async getCredential(signal?: AbortSignal, forceRefresh = false): Promise<GatewayCredential | undefined> {
+  async getCredential(signal?: AbortSignal, forceRefresh = false): Promise<GatewayAccountRecord | undefined> {
     if (signal?.aborted) {
       throw new GatewayError('The Antigravity request was cancelled', 'ABORTED')
     }
-    const stored = await this.store.read()
+    const stored = await this.store.readActiveAccount()
     if (!stored) return undefined
+    return this.ensureFreshCredential(stored, signal, forceRefresh)
+  }
+
+  /** Get a usable credential for one specific stored account id. */
+  async getCredentialForAccount(
+    accountId: string,
+    signal?: AbortSignal,
+    forceRefresh = false,
+  ): Promise<GatewayAccountRecord | undefined> {
+    if (signal?.aborted) {
+      throw new GatewayError('The Antigravity request was cancelled', 'ABORTED')
+    }
+    const { accounts } = await this.store.listAccounts()
+    const target = accounts.find((a) => a.id === accountId)
+    if (!target) return undefined
+    return this.ensureFreshCredential(target, signal, forceRefresh)
+  }
+
+  private async ensureFreshCredential(
+    stored: GatewayAccountRecord,
+    signal?: AbortSignal,
+    forceRefresh = false,
+  ): Promise<GatewayAccountRecord> {
     const now = Date.now()
     if (
       !forceRefresh &&
@@ -112,20 +151,22 @@ export class AuthManager {
     ) {
       return stored
     }
-    if (!this.refreshInFlight) {
+    let flight = this.refreshInFlightByAccount.get(stored.id)
+    if (!flight) {
       const gen = this.authGeneration
-      const flight = this.refresh(stored, gen).finally(() => {
-        if (this.refreshInFlight === flight) {
-          this.refreshInFlight = undefined
+      const created = this.refresh(stored, gen).finally(() => {
+        if (this.refreshInFlightByAccount.get(stored.id) === created) {
+          this.refreshInFlightByAccount.delete(stored.id)
         }
       })
-      this.refreshInFlight = flight
+      this.refreshInFlightByAccount.set(stored.id, created)
+      flight = created
     }
-    return raceWithAbort(this.refreshInFlight, signal)
+    return raceWithAbort(flight, signal)
   }
 
-  private async refresh(stored: GatewayCredential, gen: number): Promise<GatewayCredential> {
-    this.logger.debug('auth', 'refreshing access token')
+  private async refresh(stored: GatewayAccountRecord, gen: number): Promise<GatewayAccountRecord> {
+    this.logger.debug('auth', 'refreshing access token', { accountId: stored.id })
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(new Error('token refresh timeout')), 30_000)
     try {
@@ -133,21 +174,24 @@ export class AuthManager {
       if (this.authGeneration !== gen) {
         throw new GatewayError('Authentication state changed during token refresh', 'ABORTED')
       }
-      const next: GatewayCredential = {
+      const next: GatewayAccountRecord = {
         ...stored,
         accessToken: tokens.accessToken,
         expiresAt: tokens.expiresAt,
         ...(tokens.refreshToken !== undefined ? { refreshToken: tokens.refreshToken } : {}),
       }
-      await this.store.write(next)
-      this.logger.info('auth', 'access token refreshed', { expiresInMs: tokens.expiresAt - Date.now() })
+      await this.store.updateAccount(stored.id, next)
+      this.logger.info('auth', 'access token refreshed', {
+        accountId: stored.id,
+        expiresInMs: tokens.expiresAt - Date.now(),
+      })
       return next
     } finally {
       clearTimeout(timer)
     }
   }
 
-  /** Start the interactive OAuth flow; opens the system browser best-effort. */
+  /** Start the interactive OAuth flow; adds/updates and activates the signed-in account. */
   async login(options: { port: number; timeoutMs: number }): Promise<LoginHandle> {
     if (this.pendingLogin) {
       throw new GatewayError('A sign-in is already in progress; cancel it first', 'INVALID_REQUEST')
@@ -158,9 +202,6 @@ export class AuthManager {
       { state: start.state, verifier: start.verifier },
       { port: options.port, timeoutMs: options.timeoutMs, signal: controller.signal },
     )
-    // The redirect URI must carry the actually-bound port (oauthPort 0 asks
-    // the OS for a free port). Rewrite it into the authorization URL so the
-    // browser, Google, and the token exchange all agree on one redirect.
     const redirectUri = `http://localhost:${server.port}/oauth-callback`
     const authorizationUrl = new URL(start.url)
     authorizationUrl.searchParams.set('redirect_uri', redirectUri)
@@ -179,7 +220,8 @@ export class AuthManager {
         if (!tokens.refreshToken) {
           throw new GatewayError('Google did not return a refresh token; sign in again with consent', 'AUTH')
         }
-        const projectId = await this.discoverProject(tokens.accessToken, controller.signal)
+        const meta = await this.discoverAccountMetadata(tokens.accessToken, controller.signal)
+        const projectId = meta.projectId
         const email = await this.fetchEmail(tokens.accessToken, controller.signal)
         const credential: GatewayCredential = {
           refreshToken: tokens.refreshToken,
@@ -189,10 +231,21 @@ export class AuthManager {
           ...(email ? { email } : {}),
         }
         this.authGeneration += 1
-        this.refreshInFlight = undefined
-        await this.store.write(credential)
-        this.logger.info('auth', 'sign-in complete', { projectId: projectId || '(none)', email: email ? 'present' : 'unknown' })
-        return { ...(email ? { email } : {}), ...(projectId ? { projectId } : {}) }
+        this.refreshInFlightByAccount.clear()
+        const saved = await this.store.addAccount(credential, { activate: true })
+        if (meta.tier !== undefined) {
+          this.cachedTiers.set(saved.id, meta.tier)
+        }
+        this.logger.info('auth', 'sign-in complete', {
+          accountId: saved.id,
+          projectId: projectId || '(none)',
+          email: email ? 'present' : 'unknown',
+        })
+        return {
+          accountId: saved.id,
+          ...(email ? { email } : {}),
+          ...(projectId ? { projectId } : {}),
+        }
       } catch (error) {
         this.lastLoginError = error instanceof Error ? error.message : String(error)
         throw error
@@ -226,27 +279,73 @@ export class AuthManager {
     return true
   }
 
-  async logout(): Promise<void> {
+  async logout(accountId?: string, all = false): Promise<void> {
     this.authGeneration += 1
-    this.refreshInFlight = undefined
-    this.cancelLogin()
-    this.cachedTier = undefined
-    await this.store.delete()
-    this.logger.info('auth', 'signed out; local credential removed')
+    this.refreshInFlightByAccount.clear()
+    if (!accountId || all) {
+      this.cancelLogin()
+    }
+    if (all) {
+      this.cachedTiers.clear()
+      await this.store.delete()
+      this.logger.info('auth', 'signed out of all accounts; local credentials removed')
+      return
+    }
+    const result = await this.store.removeAccount(accountId)
+    if (result.removedId) {
+      this.cachedTiers.delete(result.removedId)
+    }
+    if (!result.nextActiveId) {
+      this.cachedTiers.clear()
+    }
+    this.logger.info('auth', 'signed out; local credential removed', {
+      ...(result.removedId ? { removedId: result.removedId } : {}),
+      ...(result.nextActiveId ? { nextActiveId: result.nextActiveId } : {}),
+    })
+  }
+
+  async listAccounts(): Promise<AccountSummary[]> {
+    const { activeAccountId, accounts } = await this.store.listAccounts()
+    return accounts.map((a) => toAccountSummary(a, activeAccountId))
+  }
+
+  async switchAccount(accountId: string): Promise<AccountSummary> {
+    const target = await this.store.setActiveAccount(accountId)
+    this.authGeneration += 1
+    this.refreshInFlightByAccount.clear()
+    this.logger.info('auth', 'switched active account', { accountId: target.id })
+    return toAccountSummary(target, target.id)
+  }
+
+  async switchAccountIfCurrent(expectedAccountId: string, nextAccountId: string): Promise<boolean> {
+    const switched = await this.store.switchAccountIfCurrent(expectedAccountId, nextAccountId)
+    if (switched) {
+      this.authGeneration += 1
+      this.refreshInFlightByAccount.clear()
+      this.logger.info('auth', 'auto-switched active account', {
+        fromAccountId: expectedAccountId,
+        toAccountId: nextAccountId,
+      })
+    }
+    return switched
   }
 
   async status(): Promise<AuthStatus> {
-    const stored = await this.store.read()
+    const { activeAccountId, accounts } = await this.store.listAccounts()
+    const active = accounts.find((a) => a.id === activeAccountId) ?? accounts[0]
+    const tier = active ? this.cachedTiers.get(active.id) : undefined
     return {
-      loggedIn: stored !== undefined,
-      ...(stored?.email ? { email: stored.email } : {}),
-      ...(stored?.projectId ? { projectId: stored.projectId } : {}),
-      ...(stored?.expiresAt !== undefined ? { expiresAt: stored.expiresAt } : {}),
+      loggedIn: active !== undefined,
+      ...(active?.email ? { email: active.email } : {}),
+      ...(active?.projectId ? { projectId: active.projectId } : {}),
+      ...(active?.expiresAt !== undefined ? { expiresAt: active.expiresAt } : {}),
       backend: this.store.backend,
       loginPending: this.pendingLogin !== undefined,
       ...(this.pendingUrl !== undefined ? { loginUrl: this.pendingUrl } : {}),
       ...(this.lastLoginError !== undefined ? { loginError: this.lastLoginError } : {}),
-      ...(stored !== undefined && this.cachedTier !== undefined ? { tier: this.cachedTier } : {}),
+      ...(active !== undefined && tier !== undefined ? { tier } : {}),
+      ...(active !== undefined ? { activeAccountId: active.id } : {}),
+      accounts: accounts.map((a) => toAccountSummary(a, active?.id)),
     }
   }
 
@@ -280,19 +379,28 @@ export class AuthManager {
       ...(email ? { email } : {}),
     }
     this.authGeneration += 1
-    this.refreshInFlight = undefined
-    await this.store.write(credential)
-    this.cachedTier = undefined
-    this.logger.info('auth', 'imported account from dsh-antigravity-auth', { projectId: projectId || '(none)' })
-    return { ...(email ? { email } : {}), ...(projectId ? { projectId } : {}) }
+    this.refreshInFlightByAccount.clear()
+    const saved = await this.store.addAccount(credential, { activate: true })
+    this.cachedTiers.delete(saved.id)
+    this.logger.info('auth', 'imported account from dsh-antigravity-auth', {
+      accountId: saved.id,
+      projectId: projectId || '(none)',
+    })
+    return {
+      ...(email ? { email } : {}),
+      ...(projectId ? { projectId } : {}),
+    }
   }
 
   /** Read account tier metadata on demand via loadCodeAssist; returns undefined when offline. */
   async getAccountTier(signal?: AbortSignal, force = false): Promise<AccountTierInfo | undefined> {
-    if (!force && this.cachedTier !== undefined) return this.cachedTier
     const credential = await this.getCredential(signal)
     if (!credential?.accessToken) return undefined
-    const meta = await this.discoverAccountMetadata(credential.accessToken, signal)
+    if (!force) {
+      const cached = this.cachedTiers.get(credential.id)
+      if (cached !== undefined) return cached
+    }
+    const meta = await this.discoverAccountMetadata(credential.accessToken, signal, credential.id)
     return meta.tier
   }
 
@@ -300,6 +408,7 @@ export class AuthManager {
   async discoverAccountMetadata(
     accessToken: string,
     signal?: AbortSignal,
+    accountId?: string,
   ): Promise<{ projectId: string; tier?: AccountTierInfo }> {
     for (const endpoint of this.endpoints) {
       try {
@@ -317,7 +426,7 @@ export class AuthManager {
         const value: unknown = JSON.parse(text)
         const record = isRecord(value) ? value : {}
         const tier = parseAccountTier(record)
-        if (tier !== undefined) this.cachedTier = tier
+        if (tier !== undefined && accountId) this.cachedTiers.set(accountId, tier)
         const projectId = extractProjectId(record)
         if (projectId || tier !== undefined) {
           return { projectId, ...(tier !== undefined ? { tier } : {}) }

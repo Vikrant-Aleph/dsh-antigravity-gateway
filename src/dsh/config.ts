@@ -29,6 +29,8 @@ export const Config = Schema.object({
   extraModels: Schema.array(Schema.string()).default([]),
   /** Rewrite the harness identity sentences that trigger endpoint 429 refusals. */
   promptCompatibility: Schema.boolean().default(true),
+  /** Automatically switch to another signed-in account when quota is exhausted. */
+  autoSwitchAccount: Schema.boolean().default(true),
   /** Send durable image attachments as inlineData on image-capable routes. */
   imageInput: Schema.boolean().default(true),
   /** Per-image byte cap for inline input. */

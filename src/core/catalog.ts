@@ -1,8 +1,6 @@
 /**
- * Per-account live model catalog, availability detection, and quota summary.
- *
- * Uses pure parsers from `src/protocol/catalog-parser.ts` and manages TTL
- * memory caching, disk cache fallback, and live probing.
+ * Per-account live model catalog, availability detection, quota summary,
+ * and multi-account failover candidate selection.
  */
 import fs from 'node:fs'
 import {
@@ -18,6 +16,7 @@ import {
   parseLiveCatalog,
   parseLiveModelIds,
   parseQuotaSummary,
+  selectQuotaForModel,
   type AccountTierInfo,
   type AvailableModelDetail,
   type CatalogAvailabilityReport,
@@ -31,16 +30,19 @@ import { MODEL_DEFINITIONS, normalizeModelId, type ModelDefinition } from '../pr
 import { GatewayError, isGatewayError } from '../shared/errors.js'
 import { writeFileAtomicSync } from '../shared/fs-atomic.js'
 import { isRecord, raceWithAbort } from '../shared/guards.js'
+import type { AccountSummary } from '../shared/rpc-contracts.js'
 import type { AuthManager } from './auth.js'
 import type { GatewayLogger } from './logger.js'
 import { noopLogger } from './logger.js'
 import { AgyTransport, cancelResponse, readBoundedText } from './transport/index.js'
 
 export {
+  accountCacheKey,
   definitionAvailable,
   parseLiveCatalog,
   parseLiveModelIds,
   parseQuotaSummary,
+  selectQuotaForModel,
   type AvailableModelDetail,
   type CatalogAvailabilityReport,
   type LiveModelEntry,
@@ -52,6 +54,7 @@ export {
 
 const MAX_CATALOG_BYTES = 512 * 1024
 const ERROR_RETRY_COOLDOWN_MS = 10_000
+const DEFAULT_QUOTA_COOLDOWN_MS = 60_000
 
 export interface CatalogOptions {
   ttlMs?: number
@@ -70,6 +73,15 @@ interface DiskCatalogCache {
   report: CatalogAvailabilityReport
 }
 
+interface AccountCatalogState {
+  parsed?: ParsedLiveCatalog
+  report?: CatalogAvailabilityReport
+  quotaGroups: QuotaGroupSummary[]
+  fullReport: boolean
+  expiresAt: number
+  lastErrorAt: number
+}
+
 export class ModelCatalog {
   private readonly auth: AuthManager
   private readonly transport: AgyTransport
@@ -79,13 +91,9 @@ export class ModelCatalog {
   private readonly endpoints: readonly string[]
   private readonly cacheFile?: string
   private readonly onUpdated?: () => void
-  private cachedParsed: ParsedLiveCatalog | undefined
-  private cachedReport: CatalogAvailabilityReport | undefined
-  private cachedQuotaGroups: QuotaGroupSummary[] = []
-  private cachedAccountKey: string | undefined
-  private cachedFullReport = false
-  private expiresAt = 0
-  private lastErrorAt = 0
+  private readonly accountCaches = new Map<string, AccountCatalogState>()
+  private readonly quotaCooldowns = new Map<string, number>()
+  private lastAccountKey: string | undefined
   private lastAdvertised: string | undefined
   private generation = 0
   private readonly inFlightFetches = new Map<
@@ -104,17 +112,46 @@ export class ModelCatalog {
     this.onUpdated = options.onUpdated
   }
 
-  /** Forget account-bound availability (logout / account switch). */
-  invalidate(): void {
+  private stateFor(accountKey: string): AccountCatalogState {
+    let state = this.accountCaches.get(accountKey)
+    if (!state) {
+      state = { quotaGroups: [], fullReport: false, expiresAt: 0, lastErrorAt: 0 }
+      this.accountCaches.set(accountKey, state)
+    }
+    return state
+  }
+
+  /** Forget account-bound availability (logout / cache reset). */
+  invalidate(accountKey?: string): void {
     this.generation += 1
     this.inFlightFetches.clear()
-    this.cachedParsed = undefined
-    this.cachedReport = undefined
-    this.cachedQuotaGroups = []
-    this.cachedAccountKey = undefined
-    this.cachedFullReport = false
-    this.expiresAt = 0
-    this.lastErrorAt = 0
+    if (accountKey !== undefined) {
+      this.accountCaches.delete(accountKey)
+      for (const key of this.quotaCooldowns.keys()) {
+        if (key.startsWith(`${accountKey}::`)) this.quotaCooldowns.delete(key)
+      }
+      if (this.lastAccountKey === accountKey) this.lastAdvertised = undefined
+      if (this.cacheFile) {
+        try {
+          const map = this.readDiskMap()
+          if (accountKey in map) {
+            delete map[accountKey]
+            if (Object.keys(map).length === 0) {
+              if (fs.existsSync(this.cacheFile)) fs.unlinkSync(this.cacheFile)
+            } else {
+              writeFileAtomicSync(this.cacheFile, JSON.stringify({ version: 2, entries: map }))
+            }
+          }
+        } catch {
+          // Best effort.
+        }
+      }
+      return
+    }
+    this.accountCaches.clear()
+    this.quotaCooldowns.clear()
+    this.lastAccountKey = undefined
+    this.lastAdvertised = undefined
     if (this.cacheFile) {
       try {
         if (fs.existsSync(this.cacheFile)) fs.unlinkSync(this.cacheFile)
@@ -122,6 +159,99 @@ export class ModelCatalog {
         // Best effort.
       }
     }
+  }
+
+  /** Signal that the active account changed (manual switch or failover). */
+  onActiveAccountChanged(): void {
+    this.lastAdvertised = undefined
+    try {
+      this.onUpdated?.()
+    } catch {
+      // Observer failures cannot break callers.
+    }
+  }
+
+  /** Record runtime quota exhaustion for `(accountKey, modelId)` until `untilMs`. */
+  markAccountQuotaExhausted(accountKey: string, modelId: string, untilMs: number = Date.now() + DEFAULT_QUOTA_COOLDOWN_MS): void {
+    this.quotaCooldowns.set(`${accountKey}::${modelId}`, untilMs)
+  }
+
+  clearAccountQuotaExhausted(accountKey: string, modelId?: string): void {
+    if (modelId !== undefined) {
+      this.quotaCooldowns.delete(`${accountKey}::${modelId}`)
+      return
+    }
+    for (const key of this.quotaCooldowns.keys()) {
+      if (key.startsWith(`${accountKey}::`)) this.quotaCooldowns.delete(key)
+    }
+  }
+
+  isAccountQuotaExhausted(accountKey: string, modelId: string, now: number = Date.now()): boolean {
+    const cooldownKey = `${accountKey}::${modelId}`
+    const until = this.quotaCooldowns.get(cooldownKey)
+    if (until !== undefined) {
+      if (until > now) return true
+      this.quotaCooldowns.delete(cooldownKey)
+    }
+    const cached = this.accountCaches.get(accountKey)
+    if (cached?.report && now < cached.expiresAt) {
+      const detail = cached.report.available.find((item) => item.id === modelId)
+      if (detail && (detail.status === 'quota-exhausted' || detail.remainingFraction === 0)) {
+        if (detail.resetTime) {
+          const resetMs = Date.parse(detail.resetTime)
+          if (Number.isFinite(resetMs) && resetMs <= now) return false
+        }
+        return true
+      }
+    }
+    return false
+  }
+
+  /** Choose the best eligible failover account for `modelId`. */
+  selectBestAccountForModel(
+    accounts: readonly AccountSummary[],
+    currentAccountId: string,
+    modelId: string,
+    triedAccountIds: ReadonlySet<string>,
+    now: number = Date.now(),
+  ): AccountSummary | undefined {
+    let bestAccount: AccountSummary | undefined
+    let bestScore = -1
+    for (const account of accounts) {
+      if (account.id === currentAccountId || triedAccountIds.has(account.id)) continue
+      const key = accountCacheKey(account)
+      if (this.isAccountQuotaExhausted(key, modelId, now)) continue
+      const report = this.accountCaches.get(key)?.report ?? this.readDiskCache(key)?.report
+      if (report) {
+        const disabled = report.unavailable.some((u) => u.id === modelId && u.status === 'disabled')
+        if (disabled) continue
+        const detail = report.available.find((a) => a.id === modelId)
+        if (detail) {
+          if (detail.remainingFraction !== undefined) {
+            if (detail.remainingFraction <= 0) {
+              const resetMs = detail.resetTime ? Date.parse(detail.resetTime) : Number.NaN
+              if (!Number.isFinite(resetMs) || resetMs > now) continue
+            }
+            const score = 2 + detail.remainingFraction
+            if (score > bestScore) {
+              bestScore = score
+              bestAccount = account
+            }
+            continue
+          }
+          if (2 > bestScore) {
+            bestScore = 2
+            bestAccount = account
+          }
+          continue
+        }
+      }
+      if (1 > bestScore) {
+        bestScore = 1
+        bestAccount = account
+      }
+    }
+    return bestAccount
   }
 
   /** Enabled live wire ids for the active account, cached with a TTL. */
@@ -138,9 +268,10 @@ export class ModelCatalog {
     const force = options.force === true
     const signal = options.signal
     const key = await this.currentAccountKey()
+    const cached = this.accountCaches.get(key)
 
-    if (!force && this.cachedReport && this.cachedFullReport && this.cachedAccountKey === key && Date.now() < this.expiresAt) {
-      return this.cachedReport
+    if (!force && cached?.report && cached.fullReport && Date.now() < cached.expiresAt) {
+      return cached.report
     }
 
     try {
@@ -187,8 +318,10 @@ export class ModelCatalog {
    * Return the cached per-model availability/quota status for an enabled or
    * disabled model, used for badges in listModels and 404 diagnostics in stream.
    */
-  getModelDetail(modelId: string): AvailableModelDetail | UnavailableModelDetail | undefined {
-    const report = this.cachedReport ?? this.readDiskCache(this.cachedAccountKey)?.report
+  getModelDetail(modelId: string, accountKey?: string): AvailableModelDetail | UnavailableModelDetail | undefined {
+    const key = accountKey ?? this.lastAccountKey
+    if (!key) return undefined
+    const report = this.accountCaches.get(key)?.report ?? this.readDiskCache(key)?.report
     if (!report) return undefined
     return (
       report.available.find((item) => item.id === modelId) ??
@@ -222,12 +355,16 @@ export class ModelCatalog {
       try {
         const status = await this.auth.status()
         if (!status.loggedIn) return 'unauthenticated'
-        return accountCacheKey(status)
+        return accountCacheKey({
+          ...(status.activeAccountId ? { id: status.activeAccountId } : {}),
+          ...(status.projectId ? { projectId: status.projectId } : {}),
+          ...(status.email ? { email: status.email } : {}),
+        })
       } catch {
         // Fall through.
       }
     }
-    return this.cachedAccountKey ?? 'default'
+    return this.lastAccountKey ?? 'default'
   }
 
   private async fetchLiveState(
@@ -262,7 +399,14 @@ export class ModelCatalog {
     force: boolean,
     includeTierAndQuota: boolean,
   ): Promise<{ parsed: ParsedLiveCatalog; definitions: ModelDefinition[]; report: CatalogAvailabilityReport }> {
-    if (!force && this.lastErrorAt > 0 && Date.now() - this.lastErrorAt < ERROR_RETRY_COOLDOWN_MS && this.cachedAccountKey === preKey && preKey !== 'unauthenticated') {
+    const preState = this.accountCaches.get(preKey)
+    if (
+      !force &&
+      preState &&
+      preState.lastErrorAt > 0 &&
+      Date.now() - preState.lastErrorAt < ERROR_RETRY_COOLDOWN_MS &&
+      preKey !== 'unauthenticated'
+    ) {
       throw new GatewayError('Live model catalog recently failed; using cached snapshot briefly', 'TRANSPORT')
     }
 
@@ -271,8 +415,9 @@ export class ModelCatalog {
       credential = await this.auth.getCredential()
     } catch (error) {
       if (this.generation === gen && isGatewayError(error) && (error.code === 'TRANSPORT' || error.code === 'TIMEOUT')) {
-        this.lastErrorAt = Date.now()
-        this.cachedAccountKey = preKey
+        const state = this.stateFor(preKey)
+        state.lastErrorAt = Date.now()
+        this.lastAccountKey = preKey
       }
       throw error
     }
@@ -280,12 +425,14 @@ export class ModelCatalog {
     if (!credential.accessToken) throw new GatewayError('The stored credential has no usable access token', 'INVALID_CREDENTIAL')
 
     const key = accountCacheKey(credential)
-    if (!force && this.cachedParsed && this.cachedReport && this.cachedAccountKey === key && Date.now() < this.expiresAt) {
-      if (!includeTierAndQuota || this.cachedFullReport) {
+    const state = this.stateFor(key)
+    if (!force && state.parsed && state.report && Date.now() < state.expiresAt) {
+      if (!includeTierAndQuota || state.fullReport) {
+        this.lastAccountKey = key
         return {
-          parsed: this.cachedParsed,
-          definitions: this.definitionsForReport(this.cachedReport),
-          report: this.cachedReport,
+          parsed: state.parsed,
+          definitions: this.definitionsForReport(state.report),
+          report: state.report,
         }
       }
     }
@@ -293,17 +440,18 @@ export class ModelCatalog {
     let parsed: ParsedLiveCatalog
     try {
       parsed = await this.probeAvailableModels(credential.accessToken, credential.projectId)
-      if (this.generation === gen) this.lastErrorAt = 0
+      if (this.generation === gen) state.lastErrorAt = 0
     } catch (error) {
       if (this.generation === gen) {
-        this.lastErrorAt = Date.now()
-        this.cachedAccountKey = key
+        state.lastErrorAt = Date.now()
+        this.lastAccountKey = key
       }
       throw error
     }
 
-    let tier: AccountTierInfo | undefined = force ? undefined : this.cachedReport?.tier
-    let quotaGroups: QuotaGroupSummary[] = force ? [] : this.cachedQuotaGroups
+    let tier: AccountTierInfo | undefined = force ? undefined : state.report?.tier
+    let quotaGroups: QuotaGroupSummary[] = force ? [] : state.quotaGroups
+    let fullReport = state.fullReport
     if (includeTierAndQuota) {
       const [fetchedTier, fetchedQuota] = await Promise.all([
         typeof this.auth.getAccountTier === 'function'
@@ -313,24 +461,29 @@ export class ModelCatalog {
       ])
       if (fetchedTier !== undefined) tier = fetchedTier
       if (fetchedQuota.length > 0) quotaGroups = fetchedQuota
-      if (this.generation === gen) {
-        this.cachedQuotaGroups = quotaGroups
-        this.cachedFullReport = true
-      }
-    } else if (this.generation === gen) {
-      this.cachedFullReport = false
+      fullReport = true
+    } else {
+      fullReport = false
     }
 
     const checkedAt = new Date().toISOString()
     const { definitions, report } = buildReportFromParsed(parsed, checkedAt, tier, quotaGroups)
     if (this.generation === gen) {
-      this.cachedParsed = parsed
-      this.cachedReport = report
-      this.cachedAccountKey = key
-      this.expiresAt = Date.now() + this.ttlMs
+      state.parsed = parsed
+      state.report = report
+      state.quotaGroups = quotaGroups
+      state.fullReport = fullReport
+      state.expiresAt = Date.now() + this.ttlMs
+      this.lastAccountKey = key
+      for (const item of report.available) {
+        if (item.remainingFraction !== undefined && item.remainingFraction > 0) {
+          this.clearAccountQuotaExhausted(key, item.id)
+        }
+      }
       this.writeDiskCache(key, definitions, report)
     }
     this.logger.debug('catalog', 'live catalog refreshed', {
+      accountKey: key,
       enabled: report.available.length,
       unavailable: report.unavailable.length,
     })
@@ -345,16 +498,18 @@ export class ModelCatalog {
   }
 
   private offlineReport(accountKey: string, errorMessage: string): { definitions: ModelDefinition[]; report: CatalogAvailabilityReport } {
-    if (this.cachedReport && this.cachedAccountKey === accountKey) {
+    this.lastAccountKey = accountKey
+    const cached = this.accountCaches.get(accountKey)
+    if (cached?.report) {
       return {
-        definitions: this.definitionsForReport(this.cachedReport),
-        report: { ...this.cachedReport, source: 'cached', error: errorMessage },
+        definitions: this.definitionsForReport(cached.report),
+        report: { ...cached.report, source: 'cached', error: errorMessage },
       }
     }
     const fromDisk = this.readDiskCache(accountKey)
     if (fromDisk) {
-      this.cachedReport = fromDisk.report
-      this.cachedAccountKey = accountKey
+      const state = this.stateFor(accountKey)
+      state.report = fromDisk.report
       const byId = new Map(MODEL_DEFINITIONS.map((definition) => [definition.id, definition]))
       const definitions = fromDisk.availableIds
         .map((id) => byId.get(id))
@@ -456,30 +611,46 @@ export class ModelCatalog {
     }
   }
 
+  private readDiskMap(): Record<string, DiskCatalogCache> {
+    if (!this.cacheFile) return {}
+    try {
+      if (!fs.existsSync(this.cacheFile)) return {}
+      const value = JSON.parse(fs.readFileSync(this.cacheFile, 'utf8')) as unknown
+      if (!isRecord(value)) return {}
+      if (value.version === 2 && isRecord(value.entries)) {
+        const out: Record<string, DiskCatalogCache> = {}
+        for (const [k, entry] of Object.entries(value.entries)) {
+          if (isRecord(entry) && entry.accountKey === k && Array.isArray(entry.availableIds) && isRecord(entry.report)) {
+            out[k] = entry as unknown as DiskCatalogCache
+          }
+        }
+        return out
+      }
+      if (typeof value.accountKey === 'string' && Array.isArray(value.availableIds) && isRecord(value.report)) {
+        return { [value.accountKey]: value as unknown as DiskCatalogCache }
+      }
+      return {}
+    } catch {
+      return {}
+    }
+  }
+
   private readDiskCache(accountKey: string | undefined): DiskCatalogCache | undefined {
     if (!this.cacheFile || !accountKey) return undefined
-    try {
-      if (!fs.existsSync(this.cacheFile)) return undefined
-      const value = JSON.parse(fs.readFileSync(this.cacheFile, 'utf8')) as unknown
-      if (!isRecord(value) || value.accountKey !== accountKey || !Array.isArray(value.availableIds) || !isRecord(value.report)) {
-        return undefined
-      }
-      return value as unknown as DiskCatalogCache
-    } catch {
-      return undefined
-    }
+    return this.readDiskMap()[accountKey]
   }
 
   private writeDiskCache(accountKey: string, definitions: readonly ModelDefinition[], report: CatalogAvailabilityReport): void {
     if (!this.cacheFile) return
     try {
-      const payload: DiskCatalogCache = {
+      const map = this.readDiskMap()
+      map[accountKey] = {
         accountKey,
         checkedAt: report.checkedAt,
         availableIds: definitions.map((definition) => definition.id),
         report,
       }
-      writeFileAtomicSync(this.cacheFile, JSON.stringify(payload))
+      writeFileAtomicSync(this.cacheFile, JSON.stringify({ version: 2, entries: map }))
     } catch {
       // Cache persistence is best-effort.
     }

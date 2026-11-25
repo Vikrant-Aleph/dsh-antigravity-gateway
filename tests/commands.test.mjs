@@ -29,7 +29,16 @@ function createCommandHarness({ accountOverrides = {}, accountMode = 'enabled' }
         expiresAt: Date.UTC(2026, 10, 26, 12, 0, 0),
         loginPending: false,
         tier: { current: { id: 'free-tier', name: 'Antigravity' } },
+        activeAccountId: 'acct-1',
+        autoSwitchAccount: true,
+        accounts: [
+          { id: 'acct-1', email: 'user@example.com', projectId: 'proj-1', active: true },
+          { id: 'acct-2', email: 'backup@example.com', projectId: 'proj-2', active: false },
+        ],
       }
+    },
+    async switch(accountId) {
+      return { active: { id: accountId, email: 'backup@example.com', projectId: 'proj-2', active: true } }
     },
     async login() {
       return { url: 'https://accounts.google.com/o/oauth2/v2/auth?state=s' }
@@ -138,4 +147,29 @@ test('/agw commands fail closed when accountMode is blocked and surface service 
   const errRes = await failing.registered.get('agw').handler({ rawInput: 'status' })
   assert.equal(errRes.kind, 'error')
   assert.match(errRes.text, /boom/)
+})
+
+test('/agw accounts, switch, and logout all operate on multi-account status', async () => {
+  const { registered } = createCommandHarness()
+  const handler = registered.get('agw').handler
+
+  const accountsRes = await handler({ rawInput: 'accounts' })
+  assert.equal(accountsRes.kind, 'success')
+  assert.match(accountsRes.text, /\* 1\. user@example\.com/)
+  assert.match(accountsRes.text, /2\. backup@example\.com/)
+
+  const switchByIndex = await handler({ rawInput: 'switch 2' })
+  assert.equal(switchByIndex.kind, 'success')
+  assert.match(switchByIndex.text, /backup@example\.com/)
+
+  const switchByEmail = await handler({ rawInput: 'switch backup@example.com' })
+  assert.equal(switchByEmail.kind, 'success')
+
+  const switchBad = await handler({ rawInput: 'switch nonexistent' })
+  assert.equal(switchBad.kind, 'error')
+  assert.match(switchBad.text, /No matching account/)
+
+  const logoutAll = await handler({ rawInput: 'logout all' })
+  assert.equal(logoutAll.kind, 'success')
+  assert.match(logoutAll.text, /all accounts/i)
 })

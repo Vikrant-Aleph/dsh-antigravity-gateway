@@ -156,3 +156,53 @@ test('concurrent atomic writes leave valid JSON and zero orphaned temp files', a
     assert.deepEqual(leftovers, [])
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('multi-account vault upgrades from v1, deduplicates identities, switches with CAS, and removes cleanly', async () => {
+  const { dir, file } = tempFile()
+  try {
+    const service = fakeService()
+    const store = new CredentialStore({ getService: () => service, file, logger: noopLogger })
+
+    // 1. Legacy v1 single-account write remains v1 shape on disk/service.
+    await store.write({ refreshToken: '1//a', accessToken: 'ya29.a', expiresAt: 10_000, email: 'a@example.com', projectId: 'proj-a' })
+    const rawV1 = JSON.parse(fs.readFileSync(file, 'utf8'))
+    assert.equal(rawV1.version, undefined)
+    assert.equal(rawV1.email, 'a@example.com')
+
+    // 2. Adding second account upgrades to v2 vault and activates account B.
+    const accB = await store.addAccount({ refreshToken: '1//b', accessToken: 'ya29.b', expiresAt: 20_000, email: 'b@example.com', projectId: 'proj-b' })
+    const listed = await store.listAccounts()
+    assert.equal(listed.accounts.length, 2)
+    assert.equal(listed.activeAccountId, accB.id)
+    assert.equal((await store.read()).email, 'b@example.com')
+
+    const accA = listed.accounts.find((a) => a.email === 'a@example.com')
+    assert.ok(accA)
+
+    // 3. Updating non-active account A preserves active B.
+    await store.updateAccount(accA.id, { refreshToken: '1//a', accessToken: 'ya29.a2', expiresAt: 30_000, email: 'a@example.com', projectId: 'proj-a' })
+    assert.equal((await store.read()).email, 'b@example.com')
+
+    // 4. Duplicate email updates in place without creating a 3rd entry.
+    await store.addAccount({ refreshToken: '1//a-new', accessToken: 'ya29.a3', expiresAt: 40_000, email: 'A@example.com', projectId: 'proj-a' }, { activate: false })
+    assert.equal((await store.listAccounts()).accounts.length, 2)
+    assert.equal((await store.read()).email, 'b@example.com')
+
+    // 5. CAS switchAccountIfCurrent prevents double-skipping.
+    assert.equal(await store.switchAccountIfCurrent('wrong-id', accA.id), false)
+    assert.equal(await store.switchAccountIfCurrent(accB.id, accA.id), true)
+    assert.equal((await store.read()).email, 'A@example.com')
+
+    // 6. Removing active account A promotes B back to active; removing B clears storage.
+    const rem1 = await store.removeAccount(accA.id)
+    assert.equal(rem1.removed, true)
+    assert.equal(rem1.nextActiveId, accB.id)
+    assert.equal((await store.read()).email, 'b@example.com')
+
+    const rem2 = await store.removeAccount()
+    assert.equal(rem2.removed, true)
+    assert.equal(rem2.nextActiveId, undefined)
+    assert.equal(await store.read(), undefined)
+    assert.equal(fs.existsSync(file), false)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})

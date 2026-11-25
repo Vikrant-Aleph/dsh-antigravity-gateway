@@ -141,6 +141,8 @@ export function apply(
     catalog,
     oauthPort: cfg.oauthPort,
     loginTimeoutMs: cfg.loginTimeoutMs,
+    providers,
+    autoSwitchAccount: cfg.autoSwitchAccount,
     logger,
   })
   const accountMode = accountModeFor(ctx.get?.('webServer') as WebServerLike | undefined)
@@ -158,6 +160,7 @@ export function apply(
     getAttachments: () => ctx.get?.('attachments') as AttachmentsServiceLike | undefined,
     imageInput: cfg.imageInput,
     maxImageBytes: cfg.maxImageBytes,
+    autoSwitchAccount: cfg.autoSwitchAccount,
     ...(cfg.dumpRequestsTo ? { dumpRequestsTo: cfg.dumpRequestsTo } : {}),
   })
 

@@ -6,7 +6,7 @@
 export const RPC_CHANNEL = '/api' as const
 
 export const ACCOUNT_RPC_NAMESPACE = 'antigravity-gateway-account' as const
-export const ACCOUNT_ENDPOINTS = ['status', 'login', 'cancel', 'logout', 'import', 'models'] as const
+export const ACCOUNT_ENDPOINTS = ['status', 'login', 'cancel', 'logout', 'import', 'models', 'switch'] as const
 export type AccountEndpoint = (typeof ACCOUNT_ENDPOINTS)[number]
 
 export const LOG_RPC_NAMESPACE = 'antigravity-gateway-logs' as const
@@ -43,6 +43,28 @@ export interface AccountModelView {
   name: string
   efforts: string[]
   description?: string
+}
+
+export interface AccountSummary {
+  id: string
+  email?: string
+  projectId?: string
+  expiresAt?: number
+  active: boolean
+  addedAt?: number
+}
+
+export interface ActiveAccountMeta {
+  id: string
+  email?: string
+  projectId?: string
+}
+
+export interface ModelQuotaSnapshot {
+  window: '5h' | 'model'
+  remainingFraction: number
+  resetTime?: string
+  label?: string
 }
 
 export interface LogReadResult {
