@@ -48,7 +48,7 @@ Google Antigravity 的模型：Claude、Gemini、GPT-OSS。自带 Google OAuth �
 从 GitHub Release 下载 tgz 后：
 
 ```sh
-dsh plugin --profile desktop add ./dsh-antigravity-gateway-0.1.0.tgz
+dsh plugin --profile desktop add ./dsh-antigravity-gateway-0.2.0.tgz
 ```
 
 或在 DSH 的 **Plugins → Add plugin** 里选择本地目录/压缩包。

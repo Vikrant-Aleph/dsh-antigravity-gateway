@@ -55,7 +55,7 @@ never modified).
 From a GitHub Release tarball:
 
 ```sh
-dsh plugin --profile desktop add ./dsh-antigravity-gateway-0.1.0.tgz
+dsh plugin --profile desktop add ./dsh-antigravity-gateway-0.2.0.tgz
 ```
 
 Or pick the local directory/archive under **Plugins → Add plugin** in DSH.

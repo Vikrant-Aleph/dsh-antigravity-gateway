@@ -1,6 +1,6 @@
 {
   "name": "dsh-antigravity-gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Use Google Antigravity models in DeepSeek Harness through the Antigravity client wire protocol, with a per-account live model catalog, self-contained OAuth login, a settings page, and bounded diagnostic logs. No Antigravity installation required.",
   "type": "module",
   "main": "lib/index.js",
