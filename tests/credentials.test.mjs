@@ -8,8 +8,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { CredentialStore, credentialRecordKey } from '../lib/credentials.js'
-import { noopLogger } from '../lib/logger.js'
+import { CredentialStore, credentialRecordKey } from '../lib/core/credentials.js'
+import { noopLogger } from '../lib/core/logger.js'
 
 const GRANT = { refreshToken: '1//test', accessToken: 'ya29.test', expiresAt: Date.now() + 3_600_000, email: 'u@example.com' }
 

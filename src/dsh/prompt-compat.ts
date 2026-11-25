@@ -5,11 +5,12 @@
  * harness identity sentences trigger HTTP 429 refusals on the private
  * endpoint. The transform rewrites only the named identity contributions at
  * assembly time, preserving quoted paths/URLs and all other instructions.
- * HTTP attribution stays truthful; this changes prompt text, not identity
- * headers.
  */
-import type { BridgeLogger } from './logger.js'
-import { noopLogger } from './logger.js'
+import type { GatewayLogger } from '../core/logger.js'
+import { noopLogger } from '../core/logger.js'
+import type { PromptCompatContext } from './types.js'
+
+export type { PromptCompatContext }
 
 const HARNESS_IDENTITY_SENTENCE = 'You are an AI agent powered by DeepSeek Harness.'
 const COMPATIBLE_IDENTITY_SENTENCE = 'You are an AI coding assistant.'
@@ -64,17 +65,11 @@ export function compatiblePromptAssembly<T extends AssemblyLike>(assembly: T, co
   return changed ? { ...assembly, sections, contexts } : assembly
 }
 
-/** Minimal structural view of the Cordis context used here. */
-export interface PromptCompatContext {
-  inject(names: string[], callback: (ctx: PromptCompatContext) => (() => void) | void): { dispose?: () => void } | undefined
-  on(event: string, listener: (...args: never[]) => unknown): () => void
-}
-
 /** Mount the assembly-time transform when the systemPrompt service exists. */
-export function mountPromptCompatibility(ctx: PromptCompatContext, ownsRoute: (provider: string) => boolean, logger: BridgeLogger = noopLogger): () => void {
+export function mountPromptCompatibility(ctx: PromptCompatContext, ownsRoute: (provider: string) => boolean, logger: GatewayLogger = noopLogger): () => void {
   let inner: (() => void) | undefined
   const fiber = ctx.inject(['systemPrompt'], (promptCtx) => {
-    const off = promptCtx.on('system-prompt/assemble', (async (_assembly: unknown, context: unknown, next: () => Promise<unknown>) => {
+    const off = promptCtx.on?.('system-prompt/assemble', (async (_assembly: unknown, context: unknown, next: () => Promise<unknown>) => {
       const assembly = (await next()) as AssemblyLike
       return compatiblePromptAssembly(assembly, context, ownsRoute)
     }) as never)

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildAuthorizationUrl, exchangeCode, refreshAccessToken, startCallbackServer } from '../lib/oauth.js'
-import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_SCOPES } from '../lib/constants.js'
+import { buildAuthorizationUrl, exchangeCode, refreshAccessToken, startCallbackServer } from '../lib/core/oauth.js'
+import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_SCOPES } from '../lib/protocol/constants.js'
 
 test('authorization URL carries PKCE S256, offline access, and the CLI scopes', () => {
   const start = buildAuthorizationUrl(51121)

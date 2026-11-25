@@ -81,11 +81,11 @@ const ALLOWED_LOCAL_LAYERS = {
 }
 
 test('layered modules obey unidirectional dependency boundaries', () => {
-  // During P2-004/P2-005 migration, src/index.ts still wires legacy shims until P2-006.
-  const files = collectTsFiles(SRC_ROOT).filter((file) => {
-    const l = layerOf(file)
-    return l !== 'legacy' && l !== 'index'
-  })
+  const allFiles = collectTsFiles(SRC_ROOT)
+  const legacyFiles = allFiles.filter((file) => layerOf(file) === 'legacy').map((f) => path.relative(SRC_ROOT, f))
+  assert.deepEqual(legacyFiles, [], `Legacy flat files must not remain in src/: ${legacyFiles.join(', ')}`)
+
+  const files = allFiles
   const violations = []
   const graph = new Map()
 
@@ -97,7 +97,7 @@ test('layered modules obey unidirectional dependency boundaries', () => {
 
     for (const spec of specs) {
       if (!spec.startsWith('.')) {
-        if (spec.startsWith('@deepseek-ai/') && layer !== 'dsh' && layer !== 'index') {
+        if (spec.startsWith('@deepseek-ai/') && layer !== 'dsh') {
           violations.push(`${rel} (${layer}) must not import ${spec}`)
         }
         if (spec === 'undici' && (layer === 'shared' || layer === 'protocol')) {

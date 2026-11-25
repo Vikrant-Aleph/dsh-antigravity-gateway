@@ -5,7 +5,7 @@ import {
   compatibleSectionText,
   compatiblePromptAssembly,
   mountPromptCompatibility,
-} from '../lib/prompt-compat.js'
+} from '../lib/dsh/prompt-compat.js'
 
 test('replaceContextProse rewrites harness prose while preserving quoted paths and URLs', () => {
   const input =

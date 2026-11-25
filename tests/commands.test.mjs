@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { registerCommands } from '../lib/commands.js'
+import { registerCommands } from '../lib/dsh/commands.js'
 
 function createCommandHarness({ accountOverrides = {}, accountMode = 'enabled' } = {}) {
   const registered = new Map()

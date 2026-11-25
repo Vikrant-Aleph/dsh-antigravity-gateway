@@ -8,11 +8,11 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { AccountService, accountModeFor, registerAccountAccess, ACCOUNT_RPC_NAMESPACE } from '../lib/account-service.js'
-import { AuthManager } from '../lib/auth.js'
-import { CredentialStore } from '../lib/credentials.js'
-import { ModelCatalog } from '../lib/catalog.js'
-import { noopLogger } from '../lib/logger.js'
+import { AccountService, accountModeFor, registerAccountAccess, ACCOUNT_RPC_NAMESPACE } from '../lib/dsh/account-service.js'
+import { AuthManager } from '../lib/core/auth.js'
+import { CredentialStore } from '../lib/core/credentials.js'
+import { ModelCatalog } from '../lib/core/catalog.js'
+import { noopLogger } from '../lib/core/logger.js'
 
 test('accountModeFor: no WebServer or loopback bind enables; anything else blocks', () => {
   assert.equal(accountModeFor(undefined), 'enabled')

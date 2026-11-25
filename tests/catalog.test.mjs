@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { parseLiveCatalog, parseLiveModelIds, parseQuotaSummary, definitionAvailable, ModelCatalog } from '../lib/catalog.js'
-import { MODEL_DEFINITIONS, getDefinition } from '../lib/models.js'
+import { parseLiveCatalog, parseLiveModelIds, parseQuotaSummary, definitionAvailable, ModelCatalog } from '../lib/core/catalog.js'
+import { MODEL_DEFINITIONS, getDefinition } from '../lib/protocol/models.js'
 
 test('parseLiveModelIds accepts both envelope shapes and modelName aliases', () => {
   const ids = parseLiveModelIds({

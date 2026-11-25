@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseProviderEvent, mapFinishReason, signatureOf } from '../lib/response.js'
+import { parseProviderEvent, mapFinishReason, signatureOf } from '../lib/protocol/response.js'
 
 test('parses text parts and usage from a candidates envelope', () => {
   const event = parseProviderEvent(

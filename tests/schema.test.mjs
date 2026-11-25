@@ -6,9 +6,8 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { sanitizeToolSchema } from '../lib/payload.js'
-import { buildEnvelope } from '../lib/payload.js'
-import { resolveRoute } from '../lib/models.js'
+import { sanitizeToolSchema, buildEnvelope } from '../lib/protocol/payload.js'
+import { resolveRoute } from '../lib/protocol/models.js'
 
 test('const becomes a single-value enum at any depth', () => {
   const schema = {

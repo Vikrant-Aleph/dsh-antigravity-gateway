@@ -6,27 +6,19 @@
  * All actions share the AccountService with the settings UI; account
  * controls fail closed when the Host's WebServer is not loopback-bound.
  */
+import type { GatewayLogger } from '../core/logger.js'
+import { noopLogger } from '../core/logger.js'
 import type { AccountService } from './account-service.js'
-import { LOOPBACK_REQUIRED_MESSAGE } from './account-service.js'
-import type { BridgeLogger } from './logger.js'
-import { noopLogger } from './logger.js'
+import { LOOPBACK_REQUIRED_MESSAGE } from './rpc.js'
+import type { CommandContext, CommandDefinitionLike } from './types.js'
 
-export interface CommandContext {
-  get?(name: string): unknown
-}
-
-interface CommandDefinitionLike {
-  name: string
-  description: string
-  input?: { hint: string }
-  handler: (invocation: { rawInput: string }) => Promise<{ kind: 'success' | 'error'; text: string }>
-}
+export type { CommandContext }
 
 export interface CommandDeps {
   account: AccountService
   accountMode: 'enabled' | 'blocked'
   loginTimeoutMs: number
-  logger?: BridgeLogger
+  logger?: GatewayLogger
 }
 
 const USAGE = [

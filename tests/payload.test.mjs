@@ -8,9 +8,9 @@ import {
   RequestSessionStore,
   requestSessionKey,
   sanitizeToolName,
-} from '../lib/payload.js'
-import { resolveRoute } from '../lib/models.js'
-import { SKIP_THOUGHT_SIGNATURE } from '../lib/constants.js'
+} from '../lib/protocol/payload.js'
+import { resolveRoute } from '../lib/protocol/models.js'
+import { SKIP_THOUGHT_SIGNATURE } from '../lib/protocol/constants.js'
 
 const session = () => ({
   conversationId: 'conv-1',

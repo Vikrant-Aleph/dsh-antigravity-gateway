@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { PluginLogger } from '../lib/logger.js'
-import { LogService, registerLogAccess, RPC_NAMESPACE } from '../lib/log-service.js'
+import { PluginLogger } from '../lib/core/logger.js'
+import { LogService, registerLogAccess, RPC_NAMESPACE } from '../lib/dsh/log-service.js'
 
 function setupLogEnv() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-logsvc-'))

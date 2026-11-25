@@ -4,8 +4,8 @@ import {
   iterateSse, readBoundedText, proxyFromEnv, noProxyMatches,
   parseWindowsProxyServer, systemProxy, resetSystemProxyCache,
   AgyTransport,
-} from '../lib/transport.js'
-import { parseRetryAfterMs, statusToError, reportsContextOverflow, reportsModelCapacity } from '../lib/errors.js'
+} from '../lib/core/transport/index.js'
+import { parseRetryAfterMs, statusToError, reportsContextOverflow, reportsModelCapacity } from '../lib/shared/errors.js'
 
 function sseResponse(text) {
   const stream = new ReadableStream({

@@ -7,7 +7,7 @@ import {
   normalizeModelId,
   claudeMaxOutputForBudget,
   CLAUDE_TIER_BUDGETS,
-} from '../lib/models.js'
+} from '../lib/protocol/models.js'
 
 test('opus 4.6 resolves to the M26 wire enum without a retirement gate', () => {
   const resolved = resolveRoute('claude-opus-4-6-thinking')

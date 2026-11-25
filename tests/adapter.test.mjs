@@ -10,12 +10,12 @@ import http from 'node:http'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { AntigravityBridgeAdapter } from '../lib/adapter.js'
-import { AuthManager } from '../lib/auth.js'
-import { ModelCatalog } from '../lib/catalog.js'
-import { CredentialStore } from '../lib/credentials.js'
-import { AgyTransport } from '../lib/transport.js'
-import { noopLogger } from '../lib/logger.js'
+import { AntigravityGatewayAdapter } from '../lib/dsh/adapter.js'
+import { AuthManager } from '../lib/core/auth.js'
+import { ModelCatalog } from '../lib/core/catalog.js'
+import { CredentialStore } from '../lib/core/credentials.js'
+import { AgyTransport } from '../lib/core/transport/index.js'
+import { noopLogger } from '../lib/core/logger.js'
 
 const SSE_HEADERS = { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' }
 
@@ -96,7 +96,7 @@ async function setup(handler = defaultHandler, { credential } = {}) {
   }
   const auth = new AuthManager({ store, transport, plainFetch, logger: noopLogger, endpoints: [server.url] })
   const catalog = new ModelCatalog(auth, transport, { ttlMs: 0, endpoints: [server.url], logger: noopLogger })
-  const adapter = new AntigravityBridgeAdapter({
+  const adapter = new AntigravityGatewayAdapter({
     providers: ['antigravity-gateway'],
     auth,
     catalog,
@@ -283,7 +283,7 @@ test('missing credential fails with AUTH and a login hint', async () => {
   const transport = new AgyTransport({})
   const auth = new AuthManager({ store, transport, logger: noopLogger })
   const catalog = new ModelCatalog(auth, transport, { logger: noopLogger })
-  const adapter = new AntigravityBridgeAdapter({ providers: ['antigravity-gateway'], auth, catalog, transport, endpoints: ['http://127.0.0.1:1'], logger: noopLogger })
+  const adapter = new AntigravityGatewayAdapter({ providers: ['antigravity-gateway'], auth, catalog, transport, endpoints: ['http://127.0.0.1:1'], logger: noopLogger })
   try {
     await assert.rejects(collect(adapter.stream(userRequest('claude-opus-4-6-thinking'))), (error) => {
       assert.equal(error.code, 'AUTH')

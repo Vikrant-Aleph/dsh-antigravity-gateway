@@ -3,7 +3,18 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { Config, apply, name, inject } from '../lib/index.js'
+import {
+  Config,
+  apply,
+  name,
+  inject,
+  AntigravityGatewayAdapter,
+  AntigravityBridgeAdapter,
+  GatewayError,
+  BridgeError,
+  isGatewayError,
+  isBridgeError,
+} from '../lib/index.js'
 
 function createMockHostContext(services = {}) {
   const effects = []
@@ -107,9 +118,12 @@ function createMockHostContext(services = {}) {
   }
 }
 
-test('plugin exports expected Cordis metadata and Config defaults', () => {
+test('plugin exports expected Cordis metadata, Config defaults, and deprecated Bridge aliases', () => {
   assert.equal(name, 'dsh-antigravity-gateway')
   assert.deepEqual(inject, ['llm'])
+  assert.equal(AntigravityBridgeAdapter, AntigravityGatewayAdapter)
+  assert.equal(BridgeError, GatewayError)
+  assert.equal(isBridgeError, isGatewayError)
   const defaults = Config({})
   assert.deepEqual(defaults.providers, ['antigravity-gateway'])
   assert.equal(defaults.oauthPort, 51121)
