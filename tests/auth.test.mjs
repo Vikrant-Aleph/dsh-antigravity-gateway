@@ -104,3 +104,48 @@ test('discoverAccountMetadata extracts projectId and tier across endpoint fallba
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('getCredential decouples caller abort signals from shared single-flight token refresh', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-auth-abort-'))
+  try {
+    const file = path.join(dir, 'cred.json')
+    fs.writeFileSync(file, JSON.stringify({ refreshToken: '1//r', accessToken: 'ya29.expired', expiresAt: 1 }))
+    const store = new CredentialStore({ file, logger: noopLogger })
+    const transport = new AgyTransport({})
+
+    let refreshCalls = 0
+    let releaseRefresh
+    const refreshGate = new Promise((resolve) => {
+      releaseRefresh = resolve
+    })
+
+    const plainFetch = async (_url, init) => {
+      refreshCalls += 1
+      await refreshGate
+      assert.equal(init?.signal?.aborted, false)
+      return new Response(JSON.stringify({ access_token: 'ya29.fresh', expires_in: 3600 }), { status: 200 })
+    }
+
+    const auth = new AuthManager({ store, transport, plainFetch, logger: noopLogger })
+    const controllerA = new AbortController()
+    const controllerB = new AbortController()
+
+    const reqA = auth.getCredential(controllerA.signal)
+    const reqB = auth.getCredential(controllerB.signal)
+
+    // Allow store.read() to enter refreshInFlight, then abort caller A only.
+    await new Promise((r) => setTimeout(r, 15))
+    controllerA.abort()
+
+    await assert.rejects(reqA, (err) => err.code === 'ABORTED')
+    releaseRefresh()
+
+    const credB = await reqB
+    assert.equal(credB.accessToken, 'ya29.fresh')
+    assert.equal(refreshCalls, 1)
+
+    await transport.close()
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

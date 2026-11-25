@@ -56,7 +56,11 @@ export {
 export const name = 'dsh-antigravity-gateway'
 export const inject = ['llm']
 
-export function apply(ctx: HostContext, config: Record<string, unknown>): void {
+export function apply(
+  ctx: HostContext,
+  config: Record<string, unknown>,
+  hooks?: { openUrl?: (url: string) => boolean },
+): void {
   const cfg = resolveGatewayConfig(config)
 
   const logger = new PluginLogger({
@@ -93,7 +97,16 @@ export function apply(ctx: HostContext, config: Record<string, unknown>): void {
   })
 
   const endpoints = [cfg.endpoint, ...cfg.fallbackEndpoints.filter((endpoint) => endpoint !== cfg.endpoint)]
-  const auth = new AuthManager({ store, transport, logger, endpoints })
+  const auth = new AuthManager({
+    store,
+    transport,
+    logger,
+    endpoints,
+    ...(hooks?.openUrl ? { openUrl: hooks.openUrl } : {}),
+  })
+  ctx.effect(() => () => {
+    auth.cancelLogin()
+  })
 
   const providers = cfg.providers.length > 0 ? [...cfg.providers] : ['antigravity-gateway']
   let registration: ((() => void) & { replace?: (providers: string[]) => void }) | undefined

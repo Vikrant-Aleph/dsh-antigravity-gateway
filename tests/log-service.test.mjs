@@ -19,6 +19,7 @@ function setupLogEnv() {
 function fakeLogContext(webServer = { host: '127.0.0.1' }) {
   const routes = new Map()
   const tools = new Map()
+  let fiberDisposed = 0
   const ctx = {
     get(name) {
       if (name === 'webServer') return webServer
@@ -45,11 +46,23 @@ function fakeLogContext(webServer = { host: '127.0.0.1' }) {
           },
         },
       }
-      cb(child)
-      return undefined
+      const cleanup = cb(child)
+      return {
+        dispose() {
+          fiberDisposed += 1
+          if (typeof cleanup === 'function') cleanup()
+        },
+      }
     },
   }
-  return { ctx, routes, tools }
+  return {
+    ctx,
+    routes,
+    tools,
+    get fiberDisposed() {
+      return fiberDisposed
+    },
+  }
 }
 
 async function callLogRpc(routes, endpoint, payload = {}, method = `${RPC_NAMESPACE}/${endpoint}`) {
@@ -122,6 +135,29 @@ test('registerLogAccess exposes RPC routes and antigravity_gateway_log tool', as
 
     dispose()
     assert.equal(tools.size, 0)
+    assert.equal(routes.size, 0)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('registerLogAccess fails closed on non-loopback WebServer and disposes routes + fiber', async () => {
+  const { dir, service } = setupLogEnv()
+  try {
+    const fake = fakeLogContext({ host: '0.0.0.0' })
+    const dispose = registerLogAccess(fake.ctx, service)
+    for (const endpoint of ['read', 'stat', 'clear', 'level']) {
+      const res = await callLogRpc(fake.routes, endpoint, endpoint === 'level' ? { level: 'debug' } : {})
+      assert.equal(res.result.ok, false)
+      assert.equal(res.result.error.code, 'loopback-required')
+    }
+    // Logs remain intact on disk.
+    assert.equal(service.read('info', 10).lines.length, 2)
+
+    dispose()
+    assert.equal(fake.routes.size, 0)
+    assert.equal(fake.tools.size, 0)
+    assert.equal(fake.fiberDisposed, 1)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }

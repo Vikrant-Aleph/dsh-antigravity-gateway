@@ -61,6 +61,7 @@ test('dispatch maps endpoints and invalidates the catalog on account changes', a
 /** Fake connection capturing registered routes. */
 function fakeContext(webServer) {
   const routes = new Map()
+  let fiberDisposed = 0
   const ctx = {
     get(name) { return name === 'webServer' ? webServer : undefined },
     inject(_names, callback) {
@@ -75,11 +76,22 @@ function fakeContext(webServer) {
           },
         },
       }
-      callback(child)
-      return undefined
+      const cleanup = callback(child)
+      return {
+        dispose() {
+          fiberDisposed += 1
+          if (typeof cleanup === 'function') cleanup()
+        },
+      }
     },
   }
-  return { ctx, routes }
+  return {
+    ctx,
+    routes,
+    get fiberDisposed() {
+      return fiberDisposed
+    },
+  }
 }
 
 async function callRoute(routes, endpoint, payload = {}) {
@@ -236,4 +248,14 @@ test('account RPC models forwards force:true to getAvailabilityReport', async ()
   assert.equal(result.value.available.length, 1)
   assert.equal(result.value.unavailable[0].reasonTitle, 'Paid Pro')
   assert.equal(result.value.models.length, 1)
+})
+
+test('registerAccountAccess disposer removes all RPC routes and disposes the inject fiber', () => {
+  const { service } = stubAccount()
+  const fake = fakeContext({ host: '127.0.0.1' })
+  const dispose = registerAccountAccess(fake.ctx, service, noopLogger)
+  assert.equal(fake.routes.size, 6)
+  dispose()
+  assert.equal(fake.routes.size, 0)
+  assert.equal(fake.fiberDisposed, 1)
 })

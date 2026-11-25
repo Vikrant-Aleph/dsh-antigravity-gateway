@@ -79,7 +79,7 @@ export function registerLogAccess(
     registerRpcNamespace(ctx, {
       namespace: LOG_RPC_NAMESPACE,
       endpoints: LOG_ENDPOINTS,
-      requireLoopback: options.requireLoopback ?? false,
+      requireLoopback: options.requireLoopback ?? true,
       blockedLogScope: 'log-service',
       blockedLogMessage: 'log RPC blocked: WebServer is not loopback-bound',
       handle: (endpoint, payload) => {

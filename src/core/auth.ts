@@ -15,7 +15,7 @@ import {
 } from '../protocol/constants.js'
 import { extractProjectId, parseAccountTier, type AccountTierInfo, type TierSummary } from '../protocol/catalog-parser.js'
 import { GatewayError } from '../shared/errors.js'
-import { isRecord } from '../shared/guards.js'
+import { isRecord, raceWithAbort } from '../shared/guards.js'
 import type { GatewayLogger } from './logger.js'
 import { noopLogger } from './logger.js'
 import { CredentialStore, type GatewayCredential } from './credentials.js'
@@ -92,9 +92,13 @@ export class AuthManager {
 
   /**
    * A usable credential, refreshing when the access token is missing or
-   * near expiry. Concurrent callers share one refresh.
+   * near expiry. Concurrent callers share one refresh; cancelling one caller
+   * never aborts the shared refresh for others.
    */
   async getCredential(signal?: AbortSignal, forceRefresh = false): Promise<GatewayCredential | undefined> {
+    if (signal?.aborted) {
+      throw new GatewayError('The Antigravity request was cancelled', 'ABORTED')
+    }
     const stored = await this.store.read()
     if (!stored) return undefined
     const now = Date.now()
@@ -108,25 +112,31 @@ export class AuthManager {
       return stored
     }
     if (!this.refreshInFlight) {
-      this.refreshInFlight = this.refresh(stored, signal).finally(() => {
+      this.refreshInFlight = this.refresh(stored).finally(() => {
         this.refreshInFlight = undefined
       })
     }
-    return this.refreshInFlight
+    return raceWithAbort(this.refreshInFlight, signal)
   }
 
-  private async refresh(stored: GatewayCredential, signal?: AbortSignal): Promise<GatewayCredential> {
+  private async refresh(stored: GatewayCredential): Promise<GatewayCredential> {
     this.logger.debug('auth', 'refreshing access token')
-    const tokens = await refreshAccessToken(this.plainFetch, stored.refreshToken, signal)
-    const next: GatewayCredential = {
-      ...stored,
-      accessToken: tokens.accessToken,
-      expiresAt: tokens.expiresAt,
-      ...(tokens.refreshToken !== undefined ? { refreshToken: tokens.refreshToken } : {}),
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(new Error('token refresh timeout')), 30_000)
+    try {
+      const tokens = await refreshAccessToken(this.plainFetch, stored.refreshToken, controller.signal)
+      const next: GatewayCredential = {
+        ...stored,
+        accessToken: tokens.accessToken,
+        expiresAt: tokens.expiresAt,
+        ...(tokens.refreshToken !== undefined ? { refreshToken: tokens.refreshToken } : {}),
+      }
+      await this.store.write(next)
+      this.logger.info('auth', 'access token refreshed', { expiresInMs: tokens.expiresAt - Date.now() })
+      return next
+    } finally {
+      clearTimeout(timer)
     }
-    await this.store.write(next)
-    this.logger.info('auth', 'access token refreshed', { expiresInMs: tokens.expiresAt - Date.now() })
-    return next
   }
 
   /** Start the interactive OAuth flow; opens the system browser best-effort. */

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import {
@@ -165,6 +166,47 @@ test('apply wires adapter, providers, discovery, commands, tools, and disposes c
     assert.equal(host.adapterDisposed, 1)
     assert.equal(host.registeredCommands.size, 0)
     assert.equal(host.registeredTools.size, 0)
+    assert.equal(host.registeredRoutes.size, 0)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('apply cancels pending OAuth login and releases callback port on plugin unload', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-index-login-'))
+  try {
+    const cfg = Config({
+      credentialFile: path.join(dir, 'credential.json'),
+      logDir: path.join(dir, 'logs'),
+      logLevel: 'off',
+      oauthPort: 0,
+    })
+    const host = createMockHostContext({ webServer: { host: '127.0.0.1' } })
+    apply(host.ctx, cfg, { openUrl: () => true })
+
+    const loginRoute = host.registeredRoutes.get('/api/antigravity-gateway-account/login')
+    const res = await loginRoute.fetch(
+      new Request('http://localhost/api', {
+        method: 'POST',
+        body: JSON.stringify({ rpcId: '1', method: 'antigravity-gateway-account/login', payload: {} }),
+      }),
+    )
+    const envelope = await res.json()
+    assert.equal(envelope.result.ok, true)
+    const redirectUri = new URL(envelope.result.value.url).searchParams.get('redirect_uri')
+    const port = Number(new URL(redirectUri).port)
+    assert.ok(port > 0)
+
+    await host.disposeAll()
+
+    // Wait a tick for Node's http.Server.close() to release the socket, then bind the same port.
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    const probe = net.createServer()
+    await new Promise((resolve, reject) => {
+      probe.once('error', reject)
+      probe.listen(port, '127.0.0.1', resolve)
+    })
+    await new Promise((resolve) => probe.close(resolve))
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }
