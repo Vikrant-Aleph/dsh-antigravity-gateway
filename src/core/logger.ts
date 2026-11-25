@@ -42,7 +42,7 @@ export const noopLogger: GatewayLogger = {
 
 const MAX_STRING = 2000
 const MEMORY_FALLBACK_LIMIT = 200
-const GOOGLE_CLIENT_SECRET_PATTERN = new RegExp(`\\b${'GOCSPX'}-[A-Za-z0-9_-]{12,}`, 'g')
+const GOOGLE_CLIENT_SECRET_PATTERN = new RegExp(`(?<![A-Za-z0-9-])${'GOCSPX'}-[A-Za-z0-9_-]{12,}`, 'g')
 
 /** Default log directory: profile logs dir when known, else `~/.dsh/logs`. */
 export function defaultLogDir(): string {

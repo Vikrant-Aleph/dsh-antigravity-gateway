@@ -258,3 +258,43 @@ test('apply cancels pending OAuth login and releases callback port on plugin unl
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('apply injects resolved OAuth client secret into PluginLogger redaction list', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agb-idx-secret-'))
+  const prevId = process.env.ANTIGRAVITY_OAUTH_CLIENT_ID
+  const prevSec = process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET
+  try {
+    process.env.ANTIGRAVITY_OAUTH_CLIENT_ID = 'custom-oauth-id'
+    process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET = 'nonstandard-custom-secret-999'
+    const host = createMockHostContext()
+    apply(host.ctx, { logDir: dir, logLevel: 'debug', credentialFile: path.join(dir, 'cred.json') })
+    const logTool = host.registeredTools.get('antigravity_gateway_log')
+    assert.ok(logTool)
+    const before = await logTool.execute({ action: 'read' })
+    assert.match(before.text, /\[plugin\] starting/)
+
+    // Trigger a failure whose message carries the custom secret; PluginLogger must redact it.
+    const accountRes = await host.registeredRoutes.get('/api/antigravity-gateway-account/switch').fetch(
+      new Request('http://localhost/api', {
+        method: 'POST',
+        body: JSON.stringify({
+          rpcId: 's1',
+          method: 'antigravity-gateway-account/switch',
+          payload: { accountId: 'nonstandard-custom-secret-999' },
+        }),
+      }),
+    )
+    assert.equal(accountRes.status, 200)
+    const logFileText = fs.readFileSync(path.join(dir, 'dsh-antigravity-gateway.log'), 'utf8')
+    assert.match(logFileText, /RPC switch failed/)
+    assert.ok(!logFileText.includes('nonstandard-custom-secret-999'))
+    assert.ok(logFileText.includes('[redacted]'))
+    await host.disposeAll()
+  } finally {
+    if (prevId === undefined) delete process.env.ANTIGRAVITY_OAUTH_CLIENT_ID
+    else process.env.ANTIGRAVITY_OAUTH_CLIENT_ID = prevId
+    if (prevSec === undefined) delete process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET
+    else process.env.ANTIGRAVITY_OAUTH_CLIENT_SECRET = prevSec
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

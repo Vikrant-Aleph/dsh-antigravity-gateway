@@ -10,6 +10,7 @@ import { AuthManager } from './core/auth.js'
 import { ModelCatalog } from './core/catalog.js'
 import { CredentialStore, defaultCredentialFile, type GatewayCredential, type BridgeCredential } from './core/credentials.js'
 import { PluginLogger, defaultLogDir, noopLogger, type GatewayLogger, type BridgeLogger } from './core/logger.js'
+import { resolveOAuthClient } from './core/oauth.js'
 import { AgyTransport } from './core/transport/index.js'
 import { AccountService, accountModeFor, registerAccountAccess } from './dsh/account-service.js'
 import { AntigravityGatewayAdapter, AntigravityBridgeAdapter } from './dsh/adapter.js'
@@ -68,6 +69,7 @@ export function apply(
     dir: cfg.logDir || defaultLogDir(),
     maxBytes: cfg.logMaxBytes,
     maxFiles: cfg.logMaxFiles,
+    secrets: [resolveOAuthClient().clientSecret],
     mirror: (line) => console.log(`[dsh-antigravity-gateway] ${line}`),
   })
   logger.info('plugin', 'starting', {

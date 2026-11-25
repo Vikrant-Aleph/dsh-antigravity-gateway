@@ -35,11 +35,11 @@ test('secrets, bearer tokens, and Google token shapes are redacted', () => {
   assert.ok(!lines[0].includes('1//0gRefreshTokenShape'))
   assert.ok(lines[0].includes('[redacted'))
   const secretShape = `${'GOCSPX'}-FakeSecretValue1234567890`
-  logger.info('auth', `leak ${secretShape} and client_secret=another_secret_value&code=abc`)
+  logger.info('auth', `leak _${secretShape} and client_secret=another_secret_value&code=abc`)
   const secondLine = logger.read().lines[1]
   assert.ok(!secondLine.includes(secretShape))
   assert.ok(!secondLine.includes('another_secret_value'))
-  assert.ok(secondLine.includes('[redacted-client-secret]'))
+  assert.ok(secondLine.includes('_[redacted-client-secret]'))
   assert.ok(secondLine.includes('client_secret=[redacted]&code=abc'))
   fs.rmSync(dir, { recursive: true, force: true })
 })

@@ -1,10 +1,21 @@
 # 独立代码审查问题修复清单（FIXES）
 
 > **审查来源**：
-> - 第一轮（架构重构验收）：`REVIEW_ROUND2`（基准 `@ e7fceeb` / 复审 `@ b428f8a`，归档于历史提交 `1c93221`）
-> - 第二轮（新功能全面验收）：[REVIEW.md](REVIEW.md)（基准 `@ 1c93221`）
-> **修复分支**：`refactor/modular-architecture`
+> - 第一轮（架构重构验收）：`REVIEW_ROUND2`（基准 `@ e7fceeb` / 复审 `@ b428f8a`，归档于历史提交 `13b365a`）
+> - 第二轮（新功能全面验收）：历史记录（基准 `@ 1c93221` / `FIX-010`~`FIX-015`）
+> - 第三轮（`v0.2.0` 全量发布前独立验收）：[REVIEW.md](REVIEW.md)（基准 `main @ 3bc93a1`）
+> **修复分支**：`main`
 > **原则**：逐项实证核实，保留原始审查报告不改动；每项修复均配套离线回归测试或可复现验证证据。
+
+---
+
+## 第三轮：`v0.2.0` 发布前独立验收审查修复台账（`FIX-016` ~ `FIX-018`）
+
+| 修复 ID | 审查编号 | 级别 | 核实结论 | 根因与影响范围 | 处理方案 | 状态 | 验收标准与验证证据 |
+|---|---|---|---|---|---|---|---|
+| **FIX-016** | `P2-01` | **P2** | **已核实为真** | [docs/features/oauth-client-externalization/SPEC.md:4-5](../features/oauth-client-externalization/SPEC.md#L4-L5) 仍标注「第一阶段（需求更新，待专人确认并实施）」，[PLAN.md:4, 60-64](../features/oauth-client-externalization/PLAN.md#L60-L64) 任务表仍为 `WAITING`/`TODO`，未随 `PROGRESS.md` 同步。 | 更新 `SPEC.md` 头部为「已实施验收（`v0.2.0`）」并同步 `PLAN.md` 全部任务状态为 `DONE`。 | `DONE` | 文档状态与代码及 `PROGRESS.md` 完全一致。 |
+| **FIX-017** | `P2-02` | **P2** | **已核实为真** | [AGENTS.md:47](../../AGENTS.md#L47) 的 `release-check.mjs` 示例命令仍沿用 `--tag v0.1.0`，与当前 `0.2.0` 版本不一致。 | 将示例命令更新为 `node scripts/release-check.mjs --tag v0.2.0`。 | `DONE` | `AGENTS.md` 示例命令与当前 `package.json` 版本一致，实测通过。 |
+| **FIX-018** | `P2-03` | **P2** | **已核实为真** | 1）[src/core/logger.ts:45](../../src/core/logger.ts#L45) 使用 `\b` 前置词边界，紧邻下划线 `_` 时不会匹配脱敏；<br>2）[src/index.ts:66-73](../../src/index.ts#L66-L73) 未将 `resolveOAuthClient().clientSecret` 注入 `PluginLoggerOptions.secrets`，自定义非标准前缀环境变量密钥依赖表单键名脱敏。 | 1）将正则前置边界放宽为 `(?<![A-Za-z0-9-])`；<br>2）`src/index.ts` 将 `resolveOAuthClient().clientSecret` 传给 `PluginLogger({ secrets: [...] })`；<br>3）补充 `tests/logger.test.mjs` 与 `tests/index.test.mjs` 回归用例。 | `DONE` | `tests/logger.test.mjs` 验证下划线前缀仍被脱敏；`tests/index.test.mjs` 验证自定义环境变量密钥在日志中被替换为 `[redacted]`。 |
 
 ---
 

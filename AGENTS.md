@@ -44,7 +44,7 @@ npm test                                      # 先 build 再跑全部离线测�
 npm run test:only                             # 仅运行 tests/*.test.mjs（须确保 lib/ 已最新）
 npm run verify                                # 推荐提交前全量门禁：typecheck + build + test:only
 npm run pack:local                            # 构建并打包本地 .tgz（测试完记得清理临时 .tgz）
-node scripts/release-check.mjs --tag v0.1.0   # 校验包版本、CHANGELOG、README 与打包白名单
+node scripts/release-check.mjs --tag v0.2.0   # 校验包版本、CHANGELOG、README 与打包白名单
 ```
 
 ---

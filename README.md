@@ -152,7 +152,7 @@ GUI 启动的 Host 不会继承 shell 的代理环境变量，系统代理自动
 npm ci
 npm run typecheck   # 覆盖 src/**/*.ts 与 client.js
 npm run build
-npm test            # 先构建再运行 157 个离线测试，不访问 Google
+npm test            # 先构建再运行 158 个离线测试，不访问 Google
 npm run verify      # typecheck + build + 全部离线测试
 ```
 

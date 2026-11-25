@@ -168,7 +168,7 @@ dsh-antigravity-auth README apply as well.
 npm ci
 npm run typecheck   # covers both src/**/*.ts and client.js
 npm run build
-npm test            # builds then runs 157 offline tests; no Google calls
+npm test            # builds then runs 158 offline tests; no Google calls
 npm run verify      # typecheck + build + full offline suite
 ```
 

@@ -1,12 +1,12 @@
 # Refactoring Progress
 
 ## Current State
-- 当前阶段：第二轮审查问题修复阶段已完成（`FIX-010`~`FIX-015` 全部闭环，等待独立复审）
-- 授权状态：已完成四层架构重构（`P0`–`P5` / `FIX-001`–`FIX-009`）、新功能开发与第二轮独立审查修复（[FIXES.md](FIXES.md)）
-- 当前任务：等待独立复审（[REVIEW.md](REVIEW.md) 与 [FIXES.md](FIXES.md) 已落盘）
-- 基准提交：`aedfa19f7bafd5f6a70c40a00c57b4f7fc5536f8`
-- 当前分支与 HEAD：`refactor/modular-architecture`
-- 最近更新时间：2026-11-26 03:56 +08:00
+- 当前阶段：第三轮发布前审查建议修复完成（`FIX-016`~`FIX-018` 全部闭环，等待独立复审）
+- 授权状态：已完成四层架构重构、新功能开发、OAuth 编码与历史清洗及第三轮审查修复（[FIXES.md](FIXES.md)）
+- 当前任务：等待独立复审（[REVIEW.md](REVIEW.md) 保留原样，[FIXES.md](FIXES.md) 已落盘）
+- 基准提交：`aedfa19`（经全历史清洗重写）
+- 当前分支：`main`（`v0.2.0` 本地待推送验收）
+- 最近更新时间：2026-11-26 04:36 +08:00
 
 ## Task List
 | ID | 任务 | 依赖 | 状态 | 验证证据 / 阻塞原因 |
@@ -58,16 +58,17 @@
 - `P4-001`~`P4-005`：统一 `npm run verify` 门禁并将 `package.json#files` 的 `docs` 精确为 `docs/DETAIL.md`；加固 `ci.yml`/`release.yml` 与 `release-check.mjs`；新增 `.editorconfig`、Issue/PR 模板、`CONTRIBUTING.md`、`SECURITY.md`；按 `D-005` 同步 `TECHNICAL*.md`/`README*.md`（修复失效 `../` 链接、同步 137 测试与 3 类维护 Playbooks）并收敛 `AGENTS.md`。
 - `P5-001`~`P5-003`：全量运行 `npm run verify`、`npm run pack:local` 与 `release-check.mjs --tag v0.1.0 --archive-dir .`，交付 `docs/refactoring/REPORT.md` 并收敛 `AGENTS.md` 为常驻开发指南。
 - `FIX-001`~`FIX-009`：核实并修复首轮独立审查指出的全部问题（已于 `b428f8a` 复审通过），全量验证 `npm run verify`（18 文件 / 145 用例）通过。
-- `FIX-010`~`FIX-015`：逐项核实并修复第二轮新功能验收审查 [REVIEW.md](REVIEW.md) 的全部 2 项 P1 与 4 项 P2 问题（全量登出清理 `sharedQuotaState`、清除 `PLAN.md` 本机路径、`AuthManager` 按 `accountId` 隔离刷新代数、`TECHNICAL*.md` / `README*.md` 同步至 155 测试、`client.js` `quota |` 回退与 `Escape` 关闭浮层、`deriveAccountId` 跳过共享项目 ID 及 `release-check.mjs` 增加 `docs/features/` 校验），`npm run verify`（18 文件 / 155 用例）与 `pack:local` + `release-check.mjs` 全绿。
+- `FIX-010`~`FIX-015`：逐项核实并修复第二轮新功能验收审查的全部 2 项 P1 与 4 项 P2 问题，全量验证通过。
+- `FIX-016`~`FIX-018`：逐项核实并修复第三轮 `v0.2.0` 发布前独立验收 [REVIEW.md](REVIEW.md) 的全部 3 项 P2 建议（`oauth-client-externalization` `SPEC.md`/`PLAN.md` 阶段状态同步、`AGENTS.md` 示例 tag 同步至 `v0.2.0`、`PluginLogger` 前置词边界放宽与 `src/index.ts` 注入 `resolveOAuthClient().clientSecret` 至 `secrets` 并补齐单测），`npm run verify`（18 文件 / 158 用例）与 `pack:local` + `release-check.mjs --tag v0.2.0` 全绿。
 
 ## Work in Progress
-- 无进行中代码任务，等待独立复审。
+- 无进行中代码任务，等待独立复审（未执行任何远程推送）。
 
 ## Verification Results
 | 命令 | 执行时间 | 退出码 / 结果 | 关键输出摘要（脱敏） |
 |---|---|---|---|
-| `npm run verify`（`typecheck:ts` + `typecheck:client` + `build` + `test:only`） | 2026-11-26 03:56 +08:00 | 退出码 `0`（测试 ~557ms） | **18 个文件 / 155 个离线测试全部通过**，TS 与 `client.js` 零类型错误 |
-| `npm run pack:local` + `node scripts/release-check.mjs --tag v0.1.0 --archive-dir .` | 2026-11-26 03:56 +08:00 | 退出码 `0` | 打包 `.tgz` 校验通过（不含 `.npm-cache/`、`node_modules/`、`docs/refactoring/`、`docs/features/`），临时 `.tgz` 已清理 |
+| `npm run verify`（`typecheck:ts` + `typecheck:client` + `build` + `test:only`） | 2026-11-26 04:36 +08:00 | 退出码 `0`（测试 ~530ms） | **18 个文件 / 158 个离线测试全部通过**，TS 与 `client.js` 零类型错误 |
+| `npm run pack:local` + `node scripts/release-check.mjs --tag v0.2.0 --archive-dir .` | 2026-11-26 04:36 +08:00 | 退出码 `0` | 打包 `.tgz` 校验通过（不含 `.npm-cache/`、`node_modules/`、`docs/refactoring/`、`docs/features/`），临时 `.tgz` 已清理 |
 
 ## Known Issues and Blockers
 - **环境说明**：在受限 Windows `workspace-write` 沙箱内运行 `node --test` 默认进程隔离模式会触发 `spawn EPERM`（因为底层禁止捕获子进程 piped stdio）；CI（Ubuntu/Windows 标准 runner）及常规终端环境下运行正常。
