@@ -464,7 +464,7 @@ Dual access: the `antigravity_gateway_log` tool and
 ## 10. Testing, releases, playbooks, and troubleshooting
 
 Offline verification (`npm run verify`: `typecheck:ts` + `typecheck:client` +
-`build` + 145 `node:test` cases) never calls Google:
+`build` + 153 `node:test` cases) never calls Google:
 - **Unit & protocol layers**: models/payload/schema/response/catalog-parser/transport/proxy/logger/atomic-writes/commands/prompt-compat.
 - **Architecture & contract guards**: [architecture.test.mjs](tests/architecture.test.mjs) enforces the four-layer unidirectional boundaries and cycle freedom; [client-contract.test.mjs](tests/client-contract.test.mjs) verifies `client.js` load safety, `#agw-styles` deduplication, and 100% alignment with `rpc-contracts.ts`.
 - **End-to-end integration (local fake server)**: text, parallel same-name tool calls, 401 refresh replay, 404 disabled-reason diagnosis, 429, 503 capacity backoff recovery, in-stream error/empty response, multi-turn thinking-signature replay, and plugin unload releasing the OAuth callback port & RPC routes.

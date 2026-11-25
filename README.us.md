@@ -28,7 +28,9 @@ import from the settings page.
 | Claude Opus / Sonnet | 4.6 and 5.5 series per account catalog, low/medium/high thinking efforts |
 | Gemini 3.8 Flash / 4 Neon / Hydrogen / Carbon / Argon | Including XHigh (Neon/Hydrogen); plan-locked models show upstream reasons in Settings |
 | GPT-OSS 120B Medium | `gpt-oss-120b-medium` |
-| Account & availability check | Settings → Antigravity Gateway (Account / Models / Logs tabs with tier, quota remaining, and disabled reasons), or `/agw status · login · cancel · logout · import · models · refresh` |
+| Account & quota check | Settings → Antigravity Gateway (multi-account switcher, visual quota progress bars & reset countdowns, diagnostic log), or `/agw status · accounts · switch · login · cancel · logout · import · models · refresh` |
+| Composer quota indicator | Shows a compact 5h quota chip (`5h | 87%`) to the left of the model name when an Antigravity Gateway model is selected; hover for full quota details |
+| Multi-account failover | Automatically switches to an eligible backup account on quota exhaustion (`429` or `0%` pre-flight) while keeping the selected model (`autoSwitchAccount: true`) |
 | Diagnostic log | `antigravity_gateway_log` tool (read/stat/level/clear); bounded, redacted, rotated |
 | Image input | Session image attachments sent as `inlineData` (configurable cap) |
 
@@ -101,13 +103,15 @@ catalog actually offers.
 ## Commands
 
 ```text
-/agw status    # login state, credential backend, project id, token expiry (default)
-/agw login     # start Google OAuth (PKCE S256 + loopback callback)
-/agw cancel    # cancel a pending sign-in
-/agw logout    # remove the local credential (does not revoke the Google grant)
-/agw import    # import the active account from dsh-antigravity-auth
-/agw models    # check and list available/unavailable models, tier, and quota
-/agw refresh   # force a fresh upstream probe of catalog and quota
+/agw status          # login state, account count, backend, project, token expiry (default)
+/agw accounts        # list all signed-in accounts
+/agw switch <target> # switch active account by index, email, or id
+/agw login           # start Google OAuth (PKCE S256 + loopback callback)
+/agw cancel          # cancel a pending sign-in
+/agw logout [all]    # remove active account credential (or "all" for every account)
+/agw import          # import an account from dsh-antigravity-auth into the vault
+/agw models          # check and list available/unavailable models, tier, and quota
+/agw refresh         # force a fresh upstream probe of catalog and quota
 ```
 
 `/antigravity-gateway` is the full-name alias of `/agw`.
@@ -123,6 +127,7 @@ The plugin row id is `dsh-antigravity-gateway`. Common fields (full schema in
     providers: [antigravity-gateway]   # route names; keep distinct from other plugins
     extraModels: []                   # pinned model ids always advertised
     promptCompatibility: true         # rewrite the harness sentences behind 429 refusals
+    autoSwitchAccount: true           # auto-switch account on quota exhaustion
     imageInput: true                  # inlineData image input
     proxyUrl: ''                      # explicit HTTP proxy; empty reads HTTPS_PROXY etc.
     useSystemProxy: true              # fall back to the Windows system proxy when no env
@@ -163,7 +168,7 @@ dsh-antigravity-auth README apply as well.
 npm ci
 npm run typecheck   # covers both src/**/*.ts and client.js
 npm run build
-npm test            # builds then runs 145 offline tests; no Google calls
+npm test            # builds then runs 153 offline tests; no Google calls
 npm run verify      # typecheck + build + full offline suite
 ```
 

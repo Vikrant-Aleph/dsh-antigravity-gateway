@@ -410,7 +410,7 @@ RPC（read/stat/clear/level），同一 `LogService` 实现，经 `src/dsh/rpc.t
 
 ## 10. 测试、发布、演进剧本与排障
 
-离线验证（`npm run verify` 包含 `typecheck:ts` + `typecheck:client` + `build` + 145 项 `node:test`）不访问 Google：
+离线验证（`npm run verify` 包含 `typecheck:ts` + `typecheck:client` + `build` + 153 项 `node:test`）不访问 Google：
 - **单元与协议层**：模型路由/载荷/schema/响应/catalog 解析/传输/代理/日志/凭据耐久/原子写盘/命令/提示兼容；
 - **架构与契约守卫**：[architecture.test.mjs](tests/architecture.test.mjs) 校验四层单向依赖与无循环引用；[client-contract.test.mjs](tests/client-contract.test.mjs) 校验 `client.js` 加载安全、`#agw-styles` 去重与前后端 `rpc-contracts.ts` 100% 一致；
 - **端到端集成（本机假端点）**：文本/并行同名工具调用/401 刷新重放/404 禁用原因诊断/429/503 容量退避恢复/流内错误/空响应/多轮思考签名回放/卸载释放回调端口与 RPC 路由。

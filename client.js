@@ -17,9 +17,13 @@
  *   locale?: { register?: (...args: any[]) => any, bind?: (ns: string) => TranslateFn },
  *   get?: (name: string) => any,
  *   connection?: { rpc?: RpcClientLike },
+ *   remote?: { $on?: (event: string, fn: (...args: any[]) => void) => (() => void) | void },
+ *   modelDirectories?: { directoryFor?: (sessionId: string) => { store?: { getSnapshot: () => any, subscribe: (fn: () => void) => () => void } } },
  *   effect?: (fn: () => any) => void,
- *   slots?: { inject?: (name: string, fn: () => any) => void, register?: (def: any, component: any) => any }
+ *   inject?: (names: string[], fn: (scope: ClientHostContext) => any) => any,
+ *   slots?: { inject?: (name: string, fn: () => any) => any, register?: (def: any, component: any) => any }
  * }} ClientHostContext
+ * @typedef {{ sessionId?: string, directory?: { store?: { getSnapshot: () => any, subscribe: (fn: () => void) => () => void } } | null, rpc?: RpcClientLike | null, t?: TranslateFn }} ComposerProps
  */
 
 /** @type {{ __ModuleLoader__: { load: (mod: { id: string, factory: (require: (id: string) => any) => any }) => void } }} */
@@ -31,6 +35,9 @@
     const React = loadModule('react');
     const h = React.createElement;
     const { useState, useEffect, useCallback, useRef } = React;
+    /** @type {{ createPortal?: (node: any, container: any) => any } | null} */
+    let ReactDOM = null;
+    try { ReactDOM = loadModule('react-dom'); } catch (e) { ReactDOM = null; }
 
     const NS = 'settings.antigravityGateway';
     const RPC_CHANNEL = '/api';
@@ -53,10 +60,20 @@
       backend: 'Credential storage',
       persistentNote: 'Sign-in persists across restarts until you sign out. The access token refreshes automatically (about hourly) — no re-login needed.',
       signIn: 'Sign in with Google',
+      addAccount: 'Add Google account',
       starting: 'Starting…',
       cancelLogin: 'Cancel sign-in',
       importAccount: 'Import from antigravity-auth',
       logout: 'Sign out',
+      removeAccount: 'Remove',
+      switchAccount: 'Use this account',
+      switchedAccount: 'Switched active account.',
+      activeBadge: 'Active',
+      accountsTitle: 'Signed-in accounts',
+      autoSwitchOn: 'Auto-switch on quota exhaustion: enabled (keeps selected model)',
+      autoSwitchOff: 'Auto-switch on quota exhaustion: disabled',
+      multiAccountCount: 'accounts',
+      activeAccountLabel: 'Active account',
       refresh: 'Refresh',
       pendingTitle: 'Waiting for Google authorization…',
       pendingHint: 'Complete the sign-in in the browser window that opened. If nothing opened, use the link below.',
@@ -65,8 +82,8 @@
       loginDone: 'Sign-in complete.',
       loginCancelled: 'Sign-in cancelled.',
       importDone: 'Account imported from dsh-antigravity-auth.',
-      logoutDone: 'Signed out. The local credential was removed.',
-      logoutConfirm: 'Sign out and remove the local credential?',
+      logoutDone: 'Account removed from local storage.',
+      logoutConfirm: 'Remove this account credential from local storage?',
       statusUnavailable: 'Account service unreachable.',
       loopbackRequired: 'Account controls require a local DSH Host (WebServer bound to 127.0.0.1).',
       riskNote: 'Unofficial channel: Google may restrict accounts used through third-party Antigravity clients. Personal use only.',
@@ -82,7 +99,10 @@
       checkedAt: 'Checked',
       accountTier: 'Plan tier',
       quotaTitle: 'Quota summary',
-      quotaResets: 'resets',
+      quotaResets: 'Resets in',
+      resetSoon: 'Resetting soon',
+      quotaCurrentModel: 'Selected model',
+      quotaNoData: 'Quota details unavailable yet. Click to refresh.',
       availableSection: 'Available on this account',
       unavailableSection: 'Unavailable on this account',
       statusAvailable: 'Available',
@@ -122,10 +142,20 @@
       backend: '凭据存储',
       persistentNote: '登录长期有效：重启不丢失，退出登录才清除。访问令牌约每小时自动刷新，无需重新登录。',
       signIn: '使用 Google 登录',
+      addAccount: '添加 Google 账号',
       starting: '正在启动…',
       cancelLogin: '取消登录',
       importAccount: '从 antigravity-auth 导入',
       logout: '退出登录',
+      removeAccount: '移除',
+      switchAccount: '设为当前',
+      switchedAccount: '已切换当前账号。',
+      activeBadge: '当前使用',
+      accountsTitle: '已登录账号列表',
+      autoSwitchOn: '额度耗尽自动切换账号：已开启（保留当前所选模型）',
+      autoSwitchOff: '额度耗尽自动切换账号：已关闭',
+      multiAccountCount: '个账号',
+      activeAccountLabel: '当前账号',
       refresh: '刷新',
       pendingTitle: '等待 Google 授权…',
       pendingHint: '请在已打开的浏览器窗口中完成登录。如果没有自动打开，请使用下面的链接。',
@@ -134,8 +164,8 @@
       loginDone: '登录完成。',
       loginCancelled: '登录已取消。',
       importDone: '已从 dsh-antigravity-auth 导入账号。',
-      logoutDone: '已退出登录，本地凭据已删除。',
-      logoutConfirm: '退出登录并删除本地凭据？',
+      logoutDone: '已移除本地账号凭据。',
+      logoutConfirm: '确定移除该账号的本地凭据吗？',
       statusUnavailable: '账号服务不可用。',
       loopbackRequired: '账号操作要求本机 DSH Host（WebServer 绑定 127.0.0.1）。',
       riskNote: '非官方渠道：Google 可能限制通过第三方 Antigravity 客户端使用的账号。仅限个人使用。',
@@ -151,7 +181,10 @@
       checkedAt: '检测时间',
       accountTier: '账号等级',
       quotaTitle: '配额摘要',
-      quotaResets: '重置',
+      quotaResets: '重置于',
+      resetSoon: '即将重置',
+      quotaCurrentModel: '当前所选模型',
+      quotaNoData: '暂无额度明细，点击可刷新。',
       availableSection: '当前账号可用模型',
       unavailableSection: '当前账号不可用模型',
       statusAvailable: '可用',
@@ -239,9 +272,50 @@
       .agw-model-reason { font-size: 11px; color: var(--dsw-alias-label-secondary, #71717a); margin: 0; line-height: 1.45; }
       .agw-section-title { font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-primary, #18181b); margin: 4px 0 0; }
       .agw-quota-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
-      .agw-quota-card { padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.12)); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,0.02)); display: flex; flex-direction: column; gap: 6px; }
+      .agw-quota-card { padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.12)); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,0.02)); display: flex; flex-direction: column; gap: 8px; }
       .agw-quota-title { font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-primary, #18181b); margin: 0; }
-      .agw-quota-bucket { font-size: 11px; color: var(--dsw-alias-label-secondary, #71717a); display: flex; justify-content: space-between; gap: 8px; }
+      .agw-quota-bucket-wrap { display: flex; flex-direction: column; gap: 4px; }
+      .agw-quota-bucket { font-size: 11px; color: var(--dsw-alias-label-secondary, #71717a); display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+      .agw-quota-reset { font-size: 11px; color: var(--dsw-alias-label-secondary, #71717a); }
+      .agw-progress-track { width: 100%; height: 6px; border-radius: 999px; background: var(--dsw-alias-border-l1, rgba(0,0,0,0.09)); overflow: hidden; }
+      .agw-progress-track.is-compact { width: 64px; height: 5px; }
+      .agw-progress-fill { height: 100%; border-radius: 999px; transition: width 0.2s ease; }
+      .agw-progress-fill.is-good { background: var(--dsw-alias-state-success-primary, #16a34a); }
+      .agw-progress-fill.is-warn { background: var(--dsw-alias-state-warn-primary, #d97706); }
+      .agw-progress-fill.is-err { background: var(--dsw-alias-state-error-primary, #dc2626); }
+      .agw-account-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+      .agw-account-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.10)); border-radius: 8px; background: var(--dsw-alias-bg-layer-1, rgba(255,255,255,0.5)); }
+      .agw-account-item.is-active { border-color: var(--dsw-alias-brand-primary, #247bbf); }
+      .agw-account-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+      .agw-account-ops { display: flex; align-items: center; gap: 6px; }
+      .agw-account-ops button { font-size: 11px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.15)); background: var(--dsw-alias-bg-layer-2, transparent); color: var(--dsw-alias-label-primary, #18181b); cursor: pointer; }
+      .agw-account-ops button:hover:not(:disabled) { border-color: var(--dsw-alias-brand-primary, #247bbf); }
+      .agw-composer-wrap { position: relative; display: inline-flex; align-items: center; }
+      .agw-composer-chip {
+        display: inline-flex; align-items: center; gap: 4px;
+        height: 24px; padding: 0 8px; margin: 0;
+        border-radius: 999px;
+        border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.14));
+        background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,0.03));
+        color: var(--dsw-alias-label-secondary, #52525b);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px; line-height: 1; font-weight: 600;
+        cursor: pointer; white-space: nowrap;
+      }
+      .agw-composer-chip:hover { border-color: var(--dsw-alias-brand-primary, #247bbf); color: var(--dsw-alias-label-primary, #18181b); }
+      .agw-composer-chip.is-warn { color: var(--dsw-alias-state-warn-primary, #d97706); border-color: var(--dsw-alias-state-warn-primary, rgba(217,119,6,0.4)); }
+      .agw-composer-chip.is-err { color: var(--dsw-alias-state-error-primary, #dc2626); border-color: var(--dsw-alias-state-error-primary, rgba(220,38,38,0.4)); }
+      .agw-quota-popover {
+        position: fixed; z-index: 9999; min-width: 260px; max-width: 340px;
+        padding: 10px 12px; border-radius: 10px;
+        border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.16));
+        background: var(--dsw-alias-bg-layer-1, #ffffff);
+        color: var(--dsw-alias-label-primary, #18181b);
+        box-shadow: 0 10px 28px rgba(0,0,0,0.16);
+        display: flex; flex-direction: column; gap: 8px; font-size: 12px;
+      }
+      .agw-popover-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600; font-size: 12px; }
+      .agw-popover-sub { font-size: 11px; color: var(--dsw-alias-label-secondary, #71717a); }
       .agw-badge.is-err { color: var(--dsw-alias-state-error-primary, #dc2626); background: var(--dsw-alias-bg-layer-2, rgba(220,38,38,0.10)); }
       .agw-select {
         display: inline-flex; align-items: center;
@@ -327,6 +401,171 @@
       }, []);
     }
 
+    /** @param {number} fraction */
+    function clampFraction(fraction) {
+      if (typeof fraction !== 'number' || !Number.isFinite(fraction)) return 0;
+      return Math.max(0, Math.min(1, fraction));
+    }
+
+    /** @param {number} fraction */
+    function quotaTone(fraction) {
+      const f = clampFraction(fraction);
+      if (f <= 0) return 'is-err';
+      if (f <= 0.25) return 'is-warn';
+      return 'is-good';
+    }
+
+    /**
+     * @param {string | undefined} iso
+     * @param {TranslateFn} t
+     * @returns {string}
+     */
+    function formatResetTime(iso, t) {
+      if (!iso) return '';
+      const ms = Date.parse(iso);
+      if (!Number.isFinite(ms)) return '';
+      const diffMs = ms - Date.now();
+      if (diffMs <= 0) return t('resetSoon');
+      const totalMins = Math.ceil(diffMs / 60_000);
+      let countdown;
+      if (totalMins >= 1440) {
+        const d = Math.floor(totalMins / 1440);
+        const hPart = Math.floor((totalMins % 1440) / 60);
+        countdown = hPart > 0 ? `${d}d ${hPart}h` : `${d}d`;
+      } else if (totalMins >= 60) {
+        const hPart = Math.floor(totalMins / 60);
+        const mPart = totalMins % 60;
+        countdown = mPart > 0 ? `${hPart}h ${mPart}m` : `${hPart}h`;
+      } else {
+        countdown = `${totalMins}m`;
+      }
+      const clock = totalMins >= 1440
+        ? new Date(ms).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return `${countdown} (${clock})`;
+    }
+
+    /** @param {{ fraction: number, compact?: boolean, label?: string }} props */
+    function ProgressBar(props) {
+      const pct = Math.round(clampFraction(props.fraction) * 100);
+      return h('div', {
+        className: `agw-progress-track${props.compact ? ' is-compact' : ''}`,
+        role: 'progressbar',
+        'aria-valuenow': pct,
+        'aria-valuemin': 0,
+        'aria-valuemax': 100,
+        ...(props.label ? { 'aria-label': props.label } : {}),
+      }, h('div', { className: `agw-progress-fill ${quotaTone(props.fraction)}`, style: { width: `${pct}%` } }));
+    }
+
+    /**
+     * @param {any} report
+     * @param {string} modelId
+     * @returns {{ window: string, remainingFraction: number, resetTime?: string, label?: string } | null}
+     */
+    function selectCompactQuota(report, modelId) {
+      if (!report) return null;
+      const lower = String(modelId || '').toLowerCase();
+      const family = lower.includes('claude') ? 'claude' : lower.includes('gemini') ? 'gemini' : lower.includes('gpt') ? 'gpt' : '';
+      const groups = Array.isArray(report.quotaGroups) ? report.quotaGroups : [];
+      const available = Array.isArray(report.available) ? report.available : [];
+      const modelDetail = available.find((/** @type {any} */ item) => item && item.id === modelId) || null;
+
+      /** @param {any} b */
+      const is5h = (b) => (b && typeof b.window === 'string' && /^5\s*h$/i.test(b.window.trim())) || /\b5\s*h\b|five\s*hour/i.test(`${(b && b.displayName) || ''} ${(b && b.bucketId) || ''}`);
+      /** @param {any} g @param {any} b */
+      const matchesFam = (g, b) => {
+        const txt = `${(g && g.displayName) || ''} ${(b && b.bucketId) || ''}`.toLowerCase();
+        if (family === 'claude') return txt.indexOf('claude') >= 0;
+        if (family === 'gemini') return txt.indexOf('gemini') >= 0;
+        if (family === 'gpt') return txt.indexOf('gpt') >= 0 || txt.indexOf('openai') >= 0;
+        return false;
+      };
+
+      let matched = null;
+      if (family) {
+        for (const g of groups) {
+          for (const b of (g && g.buckets) || []) {
+            if (is5h(b) && matchesFam(g, b)) { matched = b; break; }
+          }
+          if (matched) break;
+        }
+      }
+      if (!matched) {
+        const all5h = [];
+        for (const g of groups) {
+          for (const b of (g && g.buckets) || []) {
+            if (is5h(b)) all5h.push(b);
+          }
+        }
+        if (all5h.length === 1) matched = all5h[0];
+      }
+      if (matched && typeof matched.remainingFraction === 'number') {
+        const frac = modelDetail && typeof modelDetail.remainingFraction === 'number'
+          ? Math.min(matched.remainingFraction, modelDetail.remainingFraction)
+          : matched.remainingFraction;
+        return {
+          window: '5h',
+          remainingFraction: frac,
+          resetTime: matched.resetTime || (modelDetail && modelDetail.resetTime) || undefined,
+          label: matched.displayName,
+        };
+      }
+      if (modelDetail && typeof modelDetail.remainingFraction === 'number') {
+        return {
+          window: 'model',
+          remainingFraction: modelDetail.remainingFraction,
+          resetTime: modelDetail.resetTime,
+          label: modelDetail.name,
+        };
+      }
+      return null;
+    }
+
+    /** Shared client catalog/quota state so Settings & Composer stay synchronized. */
+    const sharedQuotaState = {
+      /** @type {any} */
+      report: null,
+      /** @type {string[]} */
+      providers: ['antigravity-gateway'],
+      lastFetchedAt: 0,
+      /** @type {Promise<any> | null} */
+      inflight: null,
+      /** @type {Set<() => void>} */
+      listeners: new Set(),
+    };
+
+    /** @param {any} value */
+    function publishSharedQuota(value) {
+      if (value && Array.isArray(value.providers) && value.providers.length > 0) {
+        sharedQuotaState.providers = value.providers;
+      }
+      if (value && (Array.isArray(value.quotaGroups) || Array.isArray(value.available))) {
+        sharedQuotaState.report = value;
+        sharedQuotaState.lastFetchedAt = Date.now();
+      }
+      for (const fn of Array.from(sharedQuotaState.listeners)) {
+        try { fn(); } catch (e) { /* ignore */ }
+      }
+    }
+
+    /**
+     * @param {RpcClientLike | null} rpc
+     * @param {boolean} [force]
+     * @returns {Promise<RpcResult>}
+     */
+    async function fetchModelsReport(rpc, force) {
+      if (!force && sharedQuotaState.inflight) return sharedQuotaState.inflight;
+      const run = rpcCall(rpc, ACCOUNT_NS, 'models', force ? { force: true } : {}).then((res) => {
+        if (res.ok && res.value) publishSharedQuota(res.value);
+        return res;
+      }).finally(() => {
+        if (sharedQuotaState.inflight === run) sharedQuotaState.inflight = null;
+      });
+      sharedQuotaState.inflight = run;
+      return run;
+    }
+
     /**
      * @param {RpcClientLike | null} rpc
      * @param {string} ns
@@ -382,9 +621,9 @@
         return () => clearInterval(timer);
       }, [pending, load]);
 
-      const act = useCallback(/** @param {string} endpoint @param {string} [okKey] */ async (endpoint, okKey) => {
+      const act = useCallback(/** @param {string} endpoint @param {string} [okKey] @param {Record<string, unknown>} [payload] */ async (endpoint, okKey, payload) => {
         setBusy(endpoint); setError(''); setNotice('');
-        const result = await rpcCall(rpc, ACCOUNT_NS, endpoint, {});
+        const result = await rpcCall(rpc, ACCOUNT_NS, endpoint, payload || {});
         if (!alive.current) return;
         if (!result.ok) {
           const code = result.error && result.error.code;
@@ -392,22 +631,27 @@
         } else {
           if (okKey) setNotice(t(okKey));
           if (endpoint === 'login') setNotice(t('loginStarted'));
+          if (endpoint === 'switch' || endpoint === 'logout' || endpoint === 'import') {
+            void fetchModelsReport(rpc, false);
+          }
         }
         setBusy('');
         await load(true);
       }, [rpc, t, load]);
 
-      const onLogout = useCallback(() => {
+      const onLogout = useCallback(/** @param {string} [accountId] */ (accountId) => {
         try { if (!window.confirm(t('logoutConfirm'))) return; } catch (e) { /* proceed */ }
-        void act('logout', 'logoutDone');
+        void act('logout', 'logoutDone', accountId ? { accountId } : {});
       }, [act, t]);
 
       const blocked = !!(status === null && error);
+      const accounts = status && Array.isArray(status.accounts) ? status.accounts : [];
       return h('div', { className: 'agw-wrap' },
         h('div', { className: 'agw-card' },
           h('div', { className: 'agw-status-row' },
             h('span', { className: `agw-badge ${status && status.loggedIn ? 'is-in' : 'is-out'}`, role: 'status' },
               busy === 'status' ? t('loading') : status ? t(status.loggedIn ? 'signedIn' : 'notSignedIn') : t('statusUnavailable')),
+            accounts.length > 1 ? h('span', { className: 'agw-badge is-in' }, `${accounts.length} ${t('multiAccountCount')}`) : null,
             status && status.loginPending ? h('span', { className: 'agw-badge is-warn' }, t('pendingTitle')) : null),
           status && status.loggedIn ? h('dl', { className: 'agw-kv' },
             status.email ? h('dt', { key: 'ek' }, t('accountEmail')) : null,
@@ -421,6 +665,18 @@
             status.expiresAt ? h('dd', { key: 'tv' }, new Date(status.expiresAt).toLocaleString()) : null,
             h('dt', { key: 'bk' }, t('backend')),
             h('dd', { key: 'bv' }, status.backend)) : null,
+          accounts.length > 0 ? h('div', { className: 'agw-wrap' },
+            h('p', { className: 'agw-section-title' }, `${t('accountsTitle')} (${accounts.length})`),
+            h('ul', { className: 'agw-account-list' },
+              accounts.map((/** @type {any} */ acct) => h('li', { key: acct.id, className: `agw-account-item${acct.active ? ' is-active' : ''}` },
+                h('div', { className: 'agw-account-info' },
+                  acct.active ? h('span', { className: 'agw-badge is-in' }, t('activeBadge')) : null,
+                  h('span', null, acct.email || acct.projectId || acct.id),
+                  acct.email && acct.projectId ? h('span', { className: 'agw-note' }, `(${acct.projectId})`) : null),
+                h('div', { className: 'agw-account-ops' },
+                  !acct.active ? h('button', { type: 'button', disabled: busy !== '', onClick: () => void act('switch', 'switchedAccount', { accountId: acct.id }) }, t('switchAccount')) : null,
+                  h('button', { type: 'button', disabled: busy !== '', onClick: () => onLogout(acct.id) }, t('removeAccount')))))),
+            h('p', { className: 'agw-note' }, t(status && status.autoSwitchAccount !== false ? 'autoSwitchOn' : 'autoSwitchOff'))) : null,
           status && status.loginPending ? h('div', { className: 'agw-pending' },
             h('p', { className: 'agw-note' }, t('pendingHint')),
             status.loginUrl ? h('a', { href: status.loginUrl, target: '_blank', rel: 'noreferrer' }, t('openAuthUrl')) : null,
@@ -428,9 +684,9 @@
               h('button', { type: 'button', disabled: busy !== '', onClick: () => void act('cancel', 'loginCancelled') }, t('cancelLogin')))) : null,
           status && status.loginError && !status.loginPending ? h('p', { className: 'agw-error', role: 'alert' }, status.loginError) : null,
           h('div', { className: 'agw-actions' },
-            !(status && status.loggedIn) && !(status && status.loginPending) ? h('button', { type: 'button', className: 'agw-primary', disabled: busy !== '' || blocked, onClick: () => void act('login') }, busy === 'login' ? t('starting') : t('signIn')) : null,
-            !(status && status.loggedIn) ? h('button', { type: 'button', disabled: busy !== '' || blocked, onClick: () => void act('import', 'importDone') }, t('importAccount')) : null,
-            status && status.loggedIn ? h('button', { type: 'button', disabled: busy !== '', onClick: onLogout }, t('logout')) : null,
+            !(status && status.loginPending) ? h('button', { type: 'button', className: 'agw-primary', disabled: busy !== '' || blocked, onClick: () => void act('login') }, busy === 'login' ? t('starting') : t(status && status.loggedIn ? 'addAccount' : 'signIn')) : null,
+            h('button', { type: 'button', disabled: busy !== '' || blocked, onClick: () => void act('import', 'importDone') }, t('importAccount')),
+            status && status.loggedIn ? h('button', { type: 'button', disabled: busy !== '', onClick: () => onLogout() }, t('logout')) : null,
             h('button', { type: 'button', disabled: busy !== '', onClick: () => void load(false) }, t('refresh'))),
           error ? h('p', { className: 'agw-error', role: 'alert' }, error) : null,
           notice ? h('p', { className: 'agw-ok', role: 'status' }, notice) : null,
@@ -455,7 +711,7 @@
 
       const load = useCallback(/** @param {boolean} [force] */ async (force) => {
         setBusy(true); setError('');
-        const result = await rpcCall(rpc, ACCOUNT_NS, 'models', force ? { force: true } : {});
+        const result = await fetchModelsReport(rpc, force);
         if (!alive.current) return;
         if (!result.ok) {
           const code = result.error && result.error.code;
@@ -472,6 +728,7 @@
       const available = report ? (Array.isArray(report.available) ? report.available : Array.isArray(report.models) ? report.models : []) : [];
       const unavailable = report && Array.isArray(report.unavailable) ? report.unavailable : [];
       const quotaGroups = report && Array.isArray(report.quotaGroups) ? report.quotaGroups : [];
+      const activeAccount = report && report.activeAccount;
       const tier = report && report.tier;
       const tierLabel = tier ? [
         tier.current && `${tier.current.name || tier.current.id} (${tier.current.id})`,
@@ -485,6 +742,7 @@
         h('div', { className: 'agw-toolbar' },
           h('button', { type: 'button', disabled: busy, onClick: () => void load(true) }, busy ? t('checking') : t('checkAvailability')),
           sourceKey ? h('span', { className: `agw-badge ${sourceBadgeClass}` }, t(sourceKey)) : null,
+          activeAccount && (activeAccount.email || activeAccount.projectId) ? h('span', { className: 'agw-note' }, `${t('activeAccountLabel')}: ${activeAccount.email || activeAccount.projectId}`) : null,
           tierLabel ? h('span', { className: 'agw-note' }, `${t('accountTier')}: ${tierLabel}`) : null,
           report && report.checkedAt ? h('span', { className: 'agw-note' }, `${t('checkedAt')}: ${new Date(report.checkedAt).toLocaleString()}`) : null),
         error ? h('p', { className: 'agw-error', role: 'alert' }, error) : null,
@@ -494,24 +752,36 @@
           h('div', { className: 'agw-quota-grid' },
             quotaGroups.map((/** @type {any} */ group, /** @type {number} */ idx) => h('div', { key: idx, className: 'agw-quota-card' },
               h('p', { className: 'agw-quota-title' }, group.displayName),
-              (group.buckets || []).map((/** @type {any} */ bucket, /** @type {number} */ bi) => h('div', { key: bi, className: 'agw-quota-bucket' },
-                h('span', null, bucket.displayName),
-                h('span', null, `${Math.round(bucket.remainingFraction * 100)}%${bucket.resetTime ? ` · ${t('quotaResets')} ${new Date(bucket.resetTime).toLocaleTimeString()}` : ''}`))))))) : null,
+              (group.buckets || []).map((/** @type {any} */ bucket, /** @type {number} */ bi) => {
+                const resetLabel = formatResetTime(bucket.resetTime, t);
+                const pct = Math.round(clampFraction(bucket.remainingFraction) * 100);
+                return h('div', { key: bi, className: 'agw-quota-bucket-wrap' },
+                  h('div', { className: 'agw-quota-bucket' },
+                    h('span', null, `${bucket.displayName}${bucket.window ? ` (${bucket.window})` : ''}`),
+                    h('strong', null, `${pct}%`)),
+                  h(ProgressBar, { fraction: bucket.remainingFraction, label: `${group.displayName} ${bucket.displayName}` }),
+                  resetLabel ? h('span', { className: 'agw-quota-reset' }, `${t('quotaResets')} ${resetLabel}`) : null);
+              }))))) : null,
         report && available.length === 0 && unavailable.length === 0 ? h('p', { className: 'agw-note' }, t('modelsEmpty')) : null,
         available.length > 0 ? h('div', { className: 'agw-wrap' },
           h('h3', { className: 'agw-section-title' }, `${t('availableSection')} (${available.length})`),
           h('ul', { className: 'agw-model-list' },
-            available.map((/** @type {any} */ model) => h('li', { key: model.id, className: 'agw-model-row' },
-              h('div', { className: 'agw-model-top' },
-                h('span', { className: `agw-badge ${model.status === 'quota-exhausted' ? 'is-warn' : 'is-in'}` },
-                  t(model.status === 'quota-exhausted' ? 'statusExhausted' : 'statusAvailable')),
-                h('span', { className: 'agw-model-id' }, model.id),
-                h('span', { className: 'agw-model-name' }, model.name),
-                h('span', { className: 'agw-model-meta' },
-                  model.efforts && model.efforts.length > 0 ? h('span', null, `${t('efforts')}: ${model.efforts.join('/')}`) : null,
-                  typeof model.remainingFraction === 'number' ? h('span', null, `${Math.round(model.remainingFraction * 100)}% ${t('quotaLeft')}`) : null,
-                  model.tagTitle ? h('span', { className: 'agw-badge is-warn' }, model.tagTitle) : null)),
-              model.tagDescription ? h('p', { className: 'agw-model-reason' }, model.tagDescription) : null)))) : null,
+            available.map((/** @type {any} */ model) => {
+              const resetLabel = formatResetTime(model.resetTime, t);
+              return h('li', { key: model.id, className: 'agw-model-row' },
+                h('div', { className: 'agw-model-top' },
+                  h('span', { className: `agw-badge ${model.status === 'quota-exhausted' ? 'is-err' : 'is-in'}` },
+                    t(model.status === 'quota-exhausted' ? 'statusExhausted' : 'statusAvailable')),
+                  h('span', { className: 'agw-model-id' }, model.id),
+                  h('span', { className: 'agw-model-name' }, model.name),
+                  h('span', { className: 'agw-model-meta' },
+                    model.efforts && model.efforts.length > 0 ? h('span', null, `${t('efforts')}: ${model.efforts.join('/')}`) : null,
+                    typeof model.remainingFraction === 'number' ? h(ProgressBar, { fraction: model.remainingFraction, compact: true, label: model.name }) : null,
+                    typeof model.remainingFraction === 'number' ? h('span', null, `${Math.round(clampFraction(model.remainingFraction) * 100)}%`) : null,
+                    resetLabel ? h('span', null, `${t('quotaResets')} ${resetLabel}`) : null,
+                    model.tagTitle ? h('span', { className: 'agw-badge is-warn' }, model.tagTitle) : null)),
+                model.tagDescription ? h('p', { className: 'agw-model-reason' }, model.tagDescription) : null);
+            }))) : null,
         unavailable.length > 0 ? h('div', { className: 'agw-wrap' },
           h('h3', { className: 'agw-section-title' }, `${t('unavailableSection')} (${unavailable.length})`),
           h('ul', { className: 'agw-model-list' },
@@ -641,6 +911,164 @@
     /** @type {RpcClientLike | null | undefined} */
     GatewayPanel.rpc = undefined;
 
+    /**
+     * Compact 5h quota chip (`5h | 87%`) rendered to the left of the model name
+     * inside `conversation.input.right`. Hidden unless an owned provider model
+     * is selected; hover/focus opens a body-portaled card with full quota info.
+     * @param {ComposerProps} [props]
+     */
+    function ComposerQuotaBadge(props) {
+      const t = (props && props.t) || ComposerQuotaBadge.t || fallbackT;
+      const rpc = (props && props.rpc) || ComposerQuotaBadge.rpc || null;
+      const directory = props && props.directory;
+      const store = directory && directory.store;
+      useStyles();
+
+      const [selection, setSelection] = useState(() => (store ? store.getSnapshot()?.current ?? null : null));
+      const [quotaVer, setQuotaVer] = useState(0);
+      const [open, setOpen] = useState(false);
+      const [coords, setCoords] = useState({ left: 16, bottom: 56 });
+      const chipRef = useRef(/** @type {any} */ (null));
+      const closeTimer = useRef(/** @type {any} */ (null));
+
+      useEffect(() => {
+        if (!store) return undefined;
+        setSelection(store.getSnapshot()?.current ?? null);
+        return store.subscribe(() => {
+          setSelection(store.getSnapshot()?.current ?? null);
+        });
+      }, [store]);
+
+      useEffect(() => {
+        const listener = () => setQuotaVer((/** @type {number} */ v) => v + 1);
+        sharedQuotaState.listeners.add(listener);
+        return () => { sharedQuotaState.listeners.delete(listener); };
+      }, []);
+
+      const isOwned = !!(selection && sharedQuotaState.providers.includes(selection.provider));
+
+      useEffect(() => {
+        if (!isOwned || !rpc) return undefined;
+        if (!sharedQuotaState.report || Date.now() - sharedQuotaState.lastFetchedAt > 30_000) {
+          void fetchModelsReport(rpc, false);
+        }
+        const timer = setInterval(() => {
+          void fetchModelsReport(rpc, false);
+        }, 60_000);
+        return () => clearInterval(timer);
+      }, [isOwned, rpc, selection && selection.provider, selection && selection.model]);
+
+      useEffect(() => () => {
+        if (closeTimer.current) clearTimeout(closeTimer.current);
+      }, []);
+
+      if (!isOwned || !selection) return null;
+
+      void quotaVer;
+      const report = sharedQuotaState.report;
+      const compact = selectCompactQuota(report, selection.model);
+      const pct = compact ? Math.round(clampFraction(compact.remainingFraction) * 100) : null;
+      const chipText = pct !== null ? `5h | ${pct}%` : '5h | --';
+      const tone = compact ? quotaTone(compact.remainingFraction) : 'is-out';
+      const toneClass = tone === 'is-err' ? ' is-err' : tone === 'is-warn' ? ' is-warn' : '';
+
+      const updateAnchor = () => {
+        try {
+          const el = chipRef.current;
+          if (el && typeof el.getBoundingClientRect === 'function') {
+            const rect = el.getBoundingClientRect();
+            const winW = typeof window !== 'undefined' && typeof window.innerWidth === 'number' ? window.innerWidth : 1024;
+            const winH = typeof window !== 'undefined' && typeof window.innerHeight === 'number' ? window.innerHeight : 768;
+            setCoords({
+              left: Math.max(8, Math.min(rect.left, winW - 350)),
+              bottom: Math.max(8, winH - rect.top + 8),
+            });
+          }
+        } catch (e) { /* non-DOM test */ }
+      };
+
+      const openPopover = () => {
+        if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+        updateAnchor();
+        setOpen(true);
+      };
+      const scheduleClose = () => {
+        if (closeTimer.current) clearTimeout(closeTimer.current);
+        closeTimer.current = setTimeout(() => { setOpen(false); }, 120);
+      };
+
+      const groups = report && Array.isArray(report.quotaGroups) ? report.quotaGroups : [];
+      const available = report && Array.isArray(report.available) ? report.available : [];
+      const currentModelDetail = available.find((/** @type {any} */ m) => m && m.id === selection.model) || null;
+      const activeAccount = report && report.activeAccount;
+      const accountCount = report && typeof report.accountCount === 'number' ? report.accountCount : 0;
+
+      const popover = open
+        ? h('div', {
+            className: 'agw-quota-popover',
+            role: 'tooltip',
+            style: { left: `${coords.left}px`, bottom: `${coords.bottom}px` },
+            onMouseEnter: openPopover,
+            onMouseLeave: scheduleClose,
+          },
+          h('div', { className: 'agw-popover-head' },
+            h('span', null, t('quotaTitle')),
+            accountCount > 1 ? h('span', { className: 'agw-badge is-in' }, `${accountCount} ${t('multiAccountCount')}`) : null),
+          activeAccount && (activeAccount.email || activeAccount.projectId)
+            ? h('div', { className: 'agw-popover-sub' }, `${t('activeAccountLabel')}: ${activeAccount.email || activeAccount.projectId}`)
+            : null,
+          currentModelDetail && typeof currentModelDetail.remainingFraction === 'number'
+            ? h('div', { className: 'agw-quota-bucket-wrap' },
+                h('div', { className: 'agw-quota-bucket' },
+                  h('span', null, `${t('quotaCurrentModel')}: ${currentModelDetail.name || selection.model}`),
+                  h('strong', null, `${Math.round(clampFraction(currentModelDetail.remainingFraction) * 100)}%`)),
+                h(ProgressBar, { fraction: currentModelDetail.remainingFraction, label: currentModelDetail.name || selection.model }),
+                currentModelDetail.resetTime
+                  ? h('span', { className: 'agw-quota-reset' }, `${t('quotaResets')} ${formatResetTime(currentModelDetail.resetTime, t)}`)
+                  : null)
+            : null,
+          groups.length > 0
+            ? groups.map((/** @type {any} */ g, /** @type {number} */ gi) => h('div', { key: gi, className: 'agw-quota-bucket-wrap' },
+                h('div', { className: 'agw-popover-sub', style: { fontWeight: 600 } }, g.displayName),
+                (g.buckets || []).map((/** @type {any} */ b, /** @type {number} */ bi) => {
+                  const resetStr = formatResetTime(b.resetTime, t);
+                  return h('div', { key: bi, className: 'agw-quota-bucket-wrap' },
+                    h('div', { className: 'agw-quota-bucket' },
+                      h('span', null, `${b.displayName}${b.window ? ` (${b.window})` : ''}`),
+                      h('strong', null, `${Math.round(clampFraction(b.remainingFraction) * 100)}%`)),
+                    h(ProgressBar, { fraction: b.remainingFraction, label: `${g.displayName} ${b.displayName}` }),
+                    resetStr ? h('span', { className: 'agw-quota-reset' }, `${t('quotaResets')} ${resetStr}`) : null);
+                })))
+            : (!currentModelDetail ? h('div', { className: 'agw-popover-sub' }, t('quotaNoData')) : null))
+        : null;
+
+      const portalTarget = typeof document !== 'undefined' ? document.body : null;
+      const renderedPopover = popover && ReactDOM && typeof ReactDOM.createPortal === 'function' && portalTarget
+        ? ReactDOM.createPortal(popover, portalTarget)
+        : popover;
+
+      return h('span', {
+        ref: chipRef,
+        className: 'agw-composer-wrap',
+        onMouseEnter: openPopover,
+        onMouseLeave: scheduleClose,
+      },
+      h('button', {
+        type: 'button',
+        className: `agw-composer-chip${toneClass}`,
+        onFocus: openPopover,
+        onBlur: scheduleClose,
+        onClick: () => { if (rpc) void fetchModelsReport(rpc, true); },
+        'aria-label': `${t('quotaTitle')}: ${chipText}`,
+      }, chipText),
+      renderedPopover);
+    }
+
+    /** @type {TranslateFn | undefined} */
+    ComposerQuotaBadge.t = undefined;
+    /** @type {RpcClientLike | null | undefined} */
+    ComposerQuotaBadge.rpc = undefined;
+
     return {
       // Only slots is a hard dependency; locale/connection degrade gracefully.
       inject: ['slots'],
@@ -689,6 +1117,24 @@
         ModelsPanel.t = t; ModelsPanel.rpc = rpc;
         LogPanel.t = t; LogPanel.rpc = rpc;
         GatewayPanel.t = t; GatewayPanel.rpc = rpc;
+        ComposerQuotaBadge.t = t; ComposerQuotaBadge.rpc = rpc;
+
+        // Subscribe to Host model catalog updates so composer quota refreshes
+        // automatically after account switch / failover.
+        try {
+          const remote = (ctx.get ? ctx.get('remote') : ctx.remote);
+          if (remote && typeof remote.$on === 'function') {
+            const off = remote.$on('llm/models-updated', (/** @type {any} */ provider) => {
+              if (!provider || sharedQuotaState.providers.includes(String(provider))) {
+                if (rpc) void fetchModelsReport(rpc, false);
+              }
+            });
+            if (typeof off === 'function' && typeof ctx.effect === 'function') ctx.effect(() => off);
+          }
+        } catch (e) { /* optional remote events */ }
+
+        // Warm provider list + quota cache softly.
+        if (rpc) void fetchModelsReport(rpc, false);
 
         // 3. Slot registration — guarded: the settings slot may not be
         // declared yet at activation time. Never rethrow.
@@ -719,6 +1165,52 @@
           }
         } catch (e) {
           console.error('[dsh-antigravity-gateway] settings registration failed:', e);
+        }
+
+        // 4. Composer inline 5h quota chip (`conversation.input.right`, soft dependency on modelDirectories).
+        try {
+          if (typeof ctx.inject === 'function') {
+            ctx.inject(['slots', 'modelDirectories'], (scope) => {
+              try {
+                const scopedSlots = scope.slots;
+                const dirs = scope.modelDirectories;
+                if (!scopedSlots || typeof scopedSlots.inject !== 'function' || typeof scopedSlots.register !== 'function') {
+                  return undefined;
+                }
+                const registerComposerSlot = scopedSlots.register;
+                return scopedSlots.inject('conversation.input.right', () => {
+                  try {
+                    return registerComposerSlot.call(
+                      scopedSlots,
+                      {
+                        name: 'conversation.input.right',
+                        id: 'antigravity-gateway-quota',
+                        order: 10,
+                        inject: (/** @type {string} */ sessionId) => {
+                          let directory = null;
+                          try {
+                            directory = dirs && typeof dirs.directoryFor === 'function' ? dirs.directoryFor(sessionId) : null;
+                          } catch (e) {
+                            directory = null;
+                          }
+                          return { sessionId, directory, rpc, t };
+                        },
+                      },
+                      ComposerQuotaBadge,
+                    );
+                  } catch (e) {
+                    console.error('[dsh-antigravity-gateway] composer quota slot callback failed:', e);
+                    return undefined;
+                  }
+                });
+              } catch (e) {
+                console.error('[dsh-antigravity-gateway] composer quota setup failed:', e);
+                return undefined;
+              }
+            });
+          }
+        } catch (e) {
+          console.error('[dsh-antigravity-gateway] composer quota inject failed:', e);
         }
       },
     };

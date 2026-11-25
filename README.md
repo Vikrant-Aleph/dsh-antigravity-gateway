@@ -24,7 +24,9 @@ Google Antigravity 的模型：Claude、Gemini、GPT-OSS。自带 Google OAuth �
 | Claude Opus / Sonnet | 4.6 与 5.5 系列，按账号目录提供，含 low/medium/high 思考档位 |
 | Gemini 3.8 Flash / 4 Neon / Hydrogen / Carbon / Argon | 含 XHigh（Neon/Hydrogen），不可用计划模型在设置页标明原因 |
 | GPT-OSS 120B Medium | `gpt-oss-120b-medium` |
-| 账号与模型检测 | 设置 → Antigravity Gateway（账号/模型/日志三个 tab，含账号等级、剩余配额与不可用原因检测），或 `/agw status · login · cancel · logout · import · models · refresh` |
+| 账号与额度检测 | 设置 → Antigravity Gateway（多账号管理/切换、账号与模型额度进度条及重置时间倒计时、诊断日志），或 `/agw status · accounts · switch · login · cancel · logout · import · models · refresh` |
+| 聊天框额度提示 | 选中本插件模型时，在聊天框模型名左侧显示简略 5h 额度（如 `5h | 87%`），悬停展示完整账号与各模型/分组额度 |
+| 多账号自动切换 | 某账号额度耗尽（`429` 或已知 0%）时自动切换至可用备用账号并保留原所选模型（`autoSwitchAccount: true`） |
 | 诊断日志 | `antigravity_gateway_log` 工具（read/stat/level/clear），有界、脱敏、轮转 |
 | 图片输入 | 会话图片附件以 `inlineData` 发送（可配置上限） |
 
@@ -90,13 +92,15 @@ dsh plugin --profile desktop add .
 ## 命令
 
 ```text
-/agw status    # 登录状态、凭据后端、项目 id、令牌过期时间（默认动作）
-/agw login     # 启动 Google OAuth（PKCE S256 + 环回回调）
-/agw cancel    # 取消进行中的登录
-/agw logout    # 删除本地凭据（不撤销 Google 授权本身）
-/agw import    # 从 dsh-antigravity-auth 导入当前账号
-/agw models    # 检测并列出账号可用/不可用模型、计划等级与剩余配额
-/agw refresh   # 强制重新探测上游目录与配额
+/agw status         # 登录状态、多账号数、凭据后端、项目 id、令牌过期时间（默认动作）
+/agw accounts       # 列出全部已登录账号及当前激活标记
+/agw switch <目标>  # 按序号、邮箱或 id 切换当前激活账号
+/agw login          # 启动 Google OAuth（PKCE S256 + 环回回调）
+/agw cancel         # 取消进行中的登录
+/agw logout [all]   # 移除当前账号凭据（加 all 移除全部账号）
+/agw import         # 从 dsh-antigravity-auth 导入账号到账号列表
+/agw models         # 检测并列出账号可用/不可用模型、计划等级与剩余配额
+/agw refresh        # 强制重新探测上游目录与配额
 ```
 
 `/antigravity-gateway` 是 `/agw` 的全名别名。
@@ -112,6 +116,7 @@ dsh plugin --profile desktop add .
     providers: [antigravity-gateway]   # 路由名，避免与其他插件冲突
     extraModels: []                   # 强制展示的固定模型 id
     promptCompatibility: true         # 改写触发 429 的 harness 身份句
+    autoSwitchAccount: true           # 额度耗尽时自动切换到备用账号并保留原模型
     imageInput: true                  # 图片附件 inlineData 输入
     proxyUrl: ''                      # 显式 HTTP 代理；空则读 HTTPS_PROXY 等
     useSystemProxy: true              # 无 env 时读 Windows 系统代理
@@ -147,7 +152,7 @@ GUI 启动的 Host 不会继承 shell 的代理环境变量，系统代理自动
 npm ci
 npm run typecheck   # 覆盖 src/**/*.ts 与 client.js
 npm run build
-npm test            # 先构建再运行 145 个离线测试，不访问 Google
+npm test            # 先构建再运行 153 个离线测试，不访问 Google
 npm run verify      # typecheck + build + 全部离线测试
 ```
 
