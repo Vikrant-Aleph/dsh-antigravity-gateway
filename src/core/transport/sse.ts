@@ -81,9 +81,9 @@ export async function* iterateSse(
       }
       let result: { done: boolean; value?: Uint8Array }
       try {
-        result = await withIdleTimeout(reader.read(), idleTimeoutMs)
+        result = await withIdleTimeout(reader.read(), idleTimeoutMs, options.signal)
       } catch (error) {
-        if (options.signal?.aborted) {
+        if (options.signal?.aborted || (error instanceof GatewayError && error.code === 'ABORTED')) {
           throw new GatewayError('The Antigravity stream was cancelled', 'ABORTED', { cause: error })
         }
         throw new GatewayError('The Antigravity stream stalled past the idle timeout', 'TIMEOUT', { cause: error })
@@ -130,16 +130,40 @@ export async function* iterateSse(
   }
 }
 
-function withIdleTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withIdleTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
+  if (signal?.aborted) {
+    return Promise.reject(new GatewayError('The Antigravity stream was cancelled', 'ABORTED'))
+  }
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`idle timeout after ${timeoutMs}ms`)), timeoutMs)
+    let settled = false
+    const cleanup = (): void => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    const onAbort = (): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(new GatewayError('The Antigravity stream was cancelled', 'ABORTED'))
+    }
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(new Error(`idle timeout after ${timeoutMs}ms`))
+    }, timeoutMs)
+    signal?.addEventListener('abort', onAbort, { once: true })
     promise.then(
       (value) => {
-        clearTimeout(timer)
+        if (settled) return
+        settled = true
+        cleanup()
         resolve(value)
       },
       (error) => {
-        clearTimeout(timer)
+        if (settled) return
+        settled = true
+        cleanup()
         reject(error)
       },
     )

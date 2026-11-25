@@ -52,6 +52,7 @@ test('iterateSse stops on abort', async () => {
     },
   })
   const response = new Response(stream)
+  const started = Date.now()
   setTimeout(() => controller.abort(), 20)
   await assert.rejects(
     (async () => {
@@ -61,6 +62,7 @@ test('iterateSse stops on abort', async () => {
     })(),
     (error) => error.code === 'ABORTED',
   )
+  assert.ok(Date.now() - started < 1000, 'abort must not stall for idleTimeoutMs')
 })
 
 test('readBoundedText reads and caps bodies', async () => {
@@ -189,4 +191,42 @@ test('overflow and capacity wording detectors', () => {
   assert.equal(reportsContextOverflow('all good'), false)
   assert.equal(reportsModelCapacity('The model is currently at capacity. Try again later.'), true)
   assert.equal(reportsModelCapacity('quota exhausted for project'), false)
+})
+
+test('transport reuses distinct direct/proxy dispatchers without leaking and closes all on close()', async () => {
+  resetSystemProxyCache()
+  const prevNoProxy = process.env.NO_PROXY
+  process.env.NO_PROXY = 'localhost'
+  const seen = []
+  const closed = []
+  const transport = new AgyTransport({
+    proxyUrl: 'http://127.0.0.1:10808',
+    fetchImpl: async (_url, init) => {
+      const d = init?.dispatcher
+      if (d && !seen.includes(d)) {
+        const origClose = d.close
+        d.close = (...args) => {
+          if (typeof args[0] !== 'function') closed.push(d)
+          return origClose.apply(d, args)
+        }
+        seen.push(d)
+      }
+      return new Response('ok', { status: 200 })
+    },
+  })
+  try {
+    await transport.request({ url: 'https://daily-cloudcode-pa.googleapis.com/a', accessToken: 't', body: '{}' })
+    await transport.request({ url: 'http://localhost:1234/b', accessToken: 't', body: '{}' })
+    await transport.request({ url: 'https://daily-cloudcode-pa.googleapis.com/c', accessToken: 't', body: '{}' })
+    await transport.request({ url: 'http://localhost:1234/d', accessToken: 't', body: '{}' })
+    // Alternation between proxy and direct keeps exactly 2 pooled dispatchers without rebuilding or closing prematurely.
+    assert.equal(seen.length, 2)
+    assert.equal(closed.length, 0)
+  } finally {
+    await transport.close()
+    assert.equal(closed.length, 2)
+    if (prevNoProxy === undefined) delete process.env.NO_PROXY
+    else process.env.NO_PROXY = prevNoProxy
+    resetSystemProxyCache()
+  }
 })

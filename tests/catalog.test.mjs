@@ -230,3 +230,57 @@ test('parseQuotaSummary ignores malformed shapes gracefully', () => {
   assert.deepEqual(parseQuotaSummary({}), [])
   assert.deepEqual(parseQuotaSummary(null), [])
 })
+
+test('concurrent list() shares one probe and preserves agentModelSorts order across TTL & disk fallback', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-cat-order-'))
+  const cacheFile = path.join(dir, 'catalog-cache.json')
+  try {
+    let probes = 0
+    let updatedCount = 0
+    const auth = {
+      async status() { return { loggedIn: true, projectId: 'proj-order' } },
+      async getCredential() { return { refreshToken: '1//x', accessToken: 'ya29.x', expiresAt: Date.now() + 3_600_000, projectId: 'proj-order' } },
+    }
+    const transport = {
+      async request() {
+        probes += 1
+        await new Promise((r) => setTimeout(r, 20))
+        return new Response(JSON.stringify({
+          agentModelSorts: [{ groups: [{ modelIds: ['gemini-4-hydrogen-high', 'claude-opus-4-6-thinking'] }] }],
+          models: {
+            'claude-opus-4-6-thinking': {},
+            'gemini-4-hydrogen-high': {},
+          },
+        }), { status: 200 })
+      },
+    }
+    const catalog = new ModelCatalog(auth, transport, {
+      ttlMs: 60_000,
+      cacheFile,
+      onUpdated: () => { updatedCount += 1 },
+    })
+
+    // Concurrent callers share one live probe.
+    const [first, second] = await Promise.all([catalog.list(), catalog.list()])
+    assert.equal(probes, 1)
+    assert.deepEqual(first.map((m) => m.id), ['gemini-4-hydrogen', 'claude-opus-4-6-thinking'])
+    assert.deepEqual(second.map((m) => m.id), ['gemini-4-hydrogen', 'claude-opus-4-6-thinking'])
+
+    // Subsequent TTL cache hit must preserve agentOrder and NOT fire spurious onUpdated.
+    const third = await catalog.list()
+    assert.equal(probes, 1)
+    assert.deepEqual(third.map((m) => m.id), ['gemini-4-hydrogen', 'claude-opus-4-6-thinking'])
+    assert.equal(updatedCount, 1)
+
+    // Cold boot offline disk restore must ALSO preserve agentOrder.
+    const offlineAuth = {
+      async status() { return { loggedIn: true, projectId: 'proj-order' } },
+      async getCredential() { throw Object.assign(new Error('offline'), { code: 'TRANSPORT' }) },
+    }
+    const cold = new ModelCatalog(offlineAuth, transport, { ttlMs: 60_000, cacheFile })
+    const restored = await cold.list()
+    assert.deepEqual(restored.map((m) => m.id), ['gemini-4-hydrogen', 'claude-opus-4-6-thinking'])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

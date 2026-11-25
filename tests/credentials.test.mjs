@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { CredentialStore, credentialRecordKey } from '../lib/core/credentials.js'
+import { writeFileAtomicSync } from '../lib/shared/fs-atomic.js'
 import { noopLogger } from '../lib/core/logger.js'
 
 const GRANT = { refreshToken: '1//test', accessToken: 'ya29.test', expiresAt: Date.now() + 3_600_000, email: 'u@example.com' }
@@ -130,5 +131,28 @@ test('service read failure falls back to the file mirror', async () => {
     }
     const store = new CredentialStore({ getService: () => service, file, logger: noopLogger })
     assert.deepEqual(await store.read(), GRANT)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('concurrent atomic writes leave valid JSON and zero orphaned temp files', async () => {
+  const { dir, file } = tempFile()
+  try {
+    const store = new CredentialStore({ file, logger: noopLogger })
+    await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        store.write({ ...GRANT, accessToken: `ya29.concurrent-${i}` }),
+      ),
+    )
+    const saved = await store.read()
+    assert.match(saved.accessToken, /^ya29\.concurrent-\d+$/)
+    const entries = fs.readdirSync(dir)
+    assert.deepEqual(entries, ['credential.json'])
+
+    // Failed write (target path is an existing directory) cleans up its temp file.
+    const dirTarget = path.join(dir, 'occupied-dir')
+    fs.mkdirSync(dirTarget)
+    assert.throws(() => writeFileAtomicSync(dirTarget, '{}'))
+    const leftovers = fs.readdirSync(dir).filter((name) => name.endsWith('.tmp'))
+    assert.deepEqual(leftovers, [])
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })

@@ -3,10 +3,10 @@
 ## Current State
 - 当前阶段：Phase 3（稳定性、安全性、缺陷修复与 `client.js` 契约治理）
 - 授权状态：方案已批准（用户于 2026-11-26 正式批准 `PLAN.md` 及 `D-001`~`D-006`，授权执行 Phase 2–5）
-- 当前任务：P3-002（P1 缺陷闭环：Catalog 单飞与保序、Transport 有界池、SSE 中止立即返回、原子写盘测试）
+- 当前任务：P3-003（P2 细节与流式边界加固）
 - 基准提交：`aedfa19f7bafd5f6a70c40a00c57b4f7fc5536f8`
 - 当前分支与 HEAD：`refactor/modular-architecture`
-- 最近更新时间：2026-11-26 01:36 +08:00
+- 最近更新时间：2026-11-26 01:44 +08:00
 
 ## Task List
 | ID | 任务 | 依赖 | 状态 | 验证证据 / 阻塞原因 |
@@ -25,8 +25,8 @@
 | P2-005 | 迁移并拆解 `src/core/` 运行时核心服务层 | P2-004 | DONE | `npm run typecheck` (0) + `npm test`（122/122 pass，含 `importFromAntigravityAuth`/`discoverAccountMetadata`） |
 | P2-006 | 建立 `src/dsh/` 适配层、收敛 `src/index.ts` 薄入口并清理旧文件 | P2-005 | DONE | `npm run typecheck` (0) + `npm test`（122/122 pass，旧扁平文件已清空） |
 | P3-001 | P0 缺陷闭环（卸载取消登录、统一 RPC/完整 dispose/守卫、刷新取消解耦） | P2-006 | DONE | `npm run typecheck` (0) + `npm test`（126/126 pass，含 4 项 P0 回归测试） |
-| P3-002 | P1 缺陷闭环（Catalog 单飞与保序、Transport 有界池、SSE 中止挂起、原子写盘测试） | P3-001 | IN_PROGRESS | 进行中 |
-| P3-003 | P2 细节清理与流式/工具/签名/超时集成测试加固 | P3-002 | TODO | 等待 Phase 2/3 授权 |
+| P3-002 | P1 缺陷闭环（Catalog 单飞与保序、Transport 有界池、SSE 中止挂起、原子写盘测试） | P3-001 | DONE | `npm run typecheck` (0) + `npm test`（129/129 pass，总耗时 ~412ms） |
+| P3-003 | P2 细节清理与流式/工具/签名/超时集成测试加固 | P3-002 | IN_PROGRESS | 进行中 |
 | P3-004 | `client.js` 类型检查、样式去重、`LogPanel` 对齐与前后端契约测试 | P3-001 | TODO | 等待 Phase 2/3 授权 |
 | P4-001 | 工具链与质量门禁统一（`typecheck`、`test`、`.gitignore`/`files` 校验） | P3-004 | TODO | 等待 Phase 2/4 授权 |
 | P4-002 | CI/CD 工作流审查与加固（`ci.yml` / `release.yml`） | P4-001 | TODO | 等待 Phase 2/4 授权 |
@@ -53,6 +53,7 @@
 - `P2-005`：迁移并拆解 `src/core/`（`transport/{proxy,http-client,sse,index}.ts`、`credentials.ts`、`oauth.ts`、`auth.ts`、`catalog.ts`、`logger.ts`）；接入 `writeFileAtomicSync` 与 `ANTIGRAVITY_ENDPOINT_FALLBACKS`；新增 `tests/auth.test.mjs` 覆盖 `importFromAntigravityAuth` 与 `discoverAccountMetadata`；`npm run typecheck` 与 `npm test`（122/122）通过。
 - `P2-006`：建立 `src/dsh/{types,config,rpc,stream-assembler,adapter,account-service,log-service,commands,prompt-compat}.ts`，收敛 `src/index.ts` 为薄装配入口（含 `D-001` `@deprecated Bridge*` 别名），同步更新全部 `tests/*.test.mjs` 导入，删除全部 16 个旧扁平文件，收紧 `tests/architecture.test.mjs` 禁止残留旧文件并限定 `@deepseek-ai/*` 仅存在于 `src/dsh/`；`npm run typecheck` 与 `npm test`（122/122）通过。
 - `P3-001`：修复 3 项 P0 缺陷——`apply()` 卸载调用 `auth.cancelLogin()` 释放回调端口、`registerLogAccess()` 启用 loopback 守卫并完整回收 fiber 与路由、`AuthManager.getCredential()` 解耦 caller `AbortSignal`；补充 4 项 P0 回归测试；`npm run typecheck` 与 `npm test`（126/126）通过。
+- `P3-002`：修复 4 项 P1 缺陷——`ModelCatalog.fetchLiveState` single-flight 与代数防过期写入、`definitionsForReport`/`offlineReport` 严格保留 `agentOrder` 顺序；`AgyTransport` 有界 `Map` 连接池与完整 `close()`；`iterateSse` 立即响应 `AbortSignal`（单测耗时从 5007ms 降至 25ms）；补充并发原子写盘零残留 `.tmp` 回归测试；`npm test`（129/129，412ms）通过。
 
 ## Work in Progress
 - `P1-003`：等待向用户汇报审计结论、目标架构、实施计划及 `D-001`~`D-006` 决策确认。

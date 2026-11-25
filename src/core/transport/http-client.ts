@@ -31,13 +31,13 @@ export interface TransportOptions {
 const DEFAULT_REQUEST_TIMEOUT_MS = 600_000
 const DEFAULT_HEADER_TIMEOUT_MS = 180_000
 const DEFAULT_IDLE_TIMEOUT_MS = 180_000
+const MAX_DISPATCHERS = 4
 
 export class AgyTransport {
   private readonly options: Required<Pick<TransportOptions, 'requestTimeoutMs' | 'responseHeaderTimeoutMs' | 'idleTimeoutMs' | 'useSystemProxy'>>
   private readonly fetchImpl: FetchLike
   private readonly systemProxyReader: () => { enabled: boolean; server?: string } | undefined
-  private dispatcher: Dispatcher | undefined
-  private dispatcherKey: string | undefined
+  private readonly dispatchers = new Map<string, Dispatcher>()
   private readonly explicitProxy?: string
 
   constructor(options: TransportOptions = {}) {
@@ -52,17 +52,29 @@ export class AgyTransport {
     this.systemProxyReader = options.systemProxyReader ?? defaultWindowsProxyReader
   }
 
-  /** Resolve (and cache) the dispatcher for one target URL. */
-  private dispatcherFor(url: URL): Dispatcher | undefined {
+  /** Resolve (and cache in a bounded pool) the dispatcher for one target URL. */
+  private dispatcherFor(url: URL): Dispatcher {
     const configured =
       this.explicitProxy ??
       proxyFromEnv() ??
       (this.options.useSystemProxy ? systemProxy(this.systemProxyReader) : undefined)
     const useProxy = configured !== undefined && !noProxyMatches(url.hostname)
     const key = useProxy ? `proxy:${configured}` : 'direct'
-    if (this.dispatcher && this.dispatcherKey === key) return this.dispatcher
-    this.dispatcherKey = key
-    this.dispatcher = useProxy
+    const existing = this.dispatchers.get(key)
+    if (existing) {
+      // Refresh LRU insertion order.
+      this.dispatchers.delete(key)
+      this.dispatchers.set(key, existing)
+      return existing
+    }
+    if (this.dispatchers.size >= MAX_DISPATCHERS) {
+      const oldest = this.dispatchers.entries().next().value
+      if (oldest) {
+        this.dispatchers.delete(oldest[0])
+        void oldest[1].close().catch(() => {})
+      }
+    }
+    const created: Dispatcher = useProxy
       ? new ProxyAgent({
           uri: configured!,
           headersTimeout: this.options.responseHeaderTimeoutMs,
@@ -72,18 +84,15 @@ export class AgyTransport {
           headersTimeout: this.options.responseHeaderTimeoutMs,
           bodyTimeout: this.options.idleTimeoutMs,
         })
-    return this.dispatcher
+    this.dispatchers.set(key, created)
+    return created
   }
 
-  /** Close pooled connections (plugin unload). */
+  /** Close all pooled connections (plugin unload). */
   async close(): Promise<void> {
-    try {
-      await this.dispatcher?.close()
-    } catch {
-      // Best effort.
-    }
-    this.dispatcher = undefined
-    this.dispatcherKey = undefined
+    const all = Array.from(this.dispatchers.values())
+    this.dispatchers.clear()
+    await Promise.allSettled(all.map((dispatcher) => dispatcher.close()))
   }
 
   /**

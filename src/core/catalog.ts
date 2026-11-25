@@ -30,7 +30,7 @@ import {
 import { MODEL_DEFINITIONS, normalizeModelId, type ModelDefinition } from '../protocol/models.js'
 import { GatewayError, isGatewayError } from '../shared/errors.js'
 import { writeFileAtomicSync } from '../shared/fs-atomic.js'
-import { isRecord } from '../shared/guards.js'
+import { isRecord, raceWithAbort } from '../shared/guards.js'
 import type { AuthManager } from './auth.js'
 import type { GatewayLogger } from './logger.js'
 import { noopLogger } from './logger.js'
@@ -87,6 +87,11 @@ export class ModelCatalog {
   private expiresAt = 0
   private lastErrorAt = 0
   private lastAdvertised: string | undefined
+  private generation = 0
+  private readonly inFlightFetches = new Map<
+    string,
+    Promise<{ parsed: ParsedLiveCatalog; definitions: ModelDefinition[]; report: CatalogAvailabilityReport }>
+  >()
 
   constructor(auth: AuthManager, transport: AgyTransport, options: CatalogOptions = {}) {
     this.auth = auth
@@ -101,6 +106,8 @@ export class ModelCatalog {
 
   /** Forget account-bound availability (logout / account switch). */
   invalidate(): void {
+    this.generation += 1
+    this.inFlightFetches.clear()
     this.cachedParsed = undefined
     this.cachedReport = undefined
     this.cachedQuotaGroups = []
@@ -228,16 +235,42 @@ export class ModelCatalog {
     force: boolean,
     includeTierAndQuota: boolean,
   ): Promise<{ parsed: ParsedLiveCatalog; definitions: ModelDefinition[]; report: CatalogAvailabilityReport }> {
+    if (signal?.aborted) {
+      throw new GatewayError('The Antigravity request was cancelled', 'ABORTED')
+    }
     const preKey = await this.currentAccountKey()
+    const flightKey = `${preKey}:${includeTierAndQuota ? 'full' : 'list'}`
+    if (!force) {
+      const existing = this.inFlightFetches.get(flightKey)
+      if (existing) {
+        return raceWithAbort(existing, signal)
+      }
+    }
+    const gen = this.generation
+    const flight = this.runFetchLiveState(preKey, gen, force, includeTierAndQuota).finally(() => {
+      if (this.inFlightFetches.get(flightKey) === flight) {
+        this.inFlightFetches.delete(flightKey)
+      }
+    })
+    this.inFlightFetches.set(flightKey, flight)
+    return raceWithAbort(flight, signal)
+  }
+
+  private async runFetchLiveState(
+    preKey: string,
+    gen: number,
+    force: boolean,
+    includeTierAndQuota: boolean,
+  ): Promise<{ parsed: ParsedLiveCatalog; definitions: ModelDefinition[]; report: CatalogAvailabilityReport }> {
     if (!force && this.lastErrorAt > 0 && Date.now() - this.lastErrorAt < ERROR_RETRY_COOLDOWN_MS && this.cachedAccountKey === preKey && preKey !== 'unauthenticated') {
       throw new GatewayError('Live model catalog recently failed; using cached snapshot briefly', 'TRANSPORT')
     }
 
     let credential
     try {
-      credential = await this.auth.getCredential(signal)
+      credential = await this.auth.getCredential()
     } catch (error) {
-      if (isGatewayError(error) && (error.code === 'TRANSPORT' || error.code === 'TIMEOUT')) {
+      if (this.generation === gen && isGatewayError(error) && (error.code === 'TRANSPORT' || error.code === 'TIMEOUT')) {
         this.lastErrorAt = Date.now()
         this.cachedAccountKey = preKey
       }
@@ -259,11 +292,13 @@ export class ModelCatalog {
 
     let parsed: ParsedLiveCatalog
     try {
-      parsed = await this.probeAvailableModels(credential.accessToken, credential.projectId, signal)
-      this.lastErrorAt = 0
+      parsed = await this.probeAvailableModels(credential.accessToken, credential.projectId)
+      if (this.generation === gen) this.lastErrorAt = 0
     } catch (error) {
-      this.lastErrorAt = Date.now()
-      this.cachedAccountKey = key
+      if (this.generation === gen) {
+        this.lastErrorAt = Date.now()
+        this.cachedAccountKey = key
+      }
       throw error
     }
 
@@ -272,25 +307,29 @@ export class ModelCatalog {
     if (includeTierAndQuota) {
       const [fetchedTier, fetchedQuota] = await Promise.all([
         typeof this.auth.getAccountTier === 'function'
-          ? this.auth.getAccountTier(signal, force).catch(() => undefined)
+          ? this.auth.getAccountTier(undefined, force).catch(() => undefined)
           : Promise.resolve(undefined),
-        this.probeQuotaSummary(credential.accessToken, credential.projectId, signal).catch(() => []),
+        this.probeQuotaSummary(credential.accessToken, credential.projectId).catch(() => []),
       ])
       if (fetchedTier !== undefined) tier = fetchedTier
       if (fetchedQuota.length > 0) quotaGroups = fetchedQuota
-      this.cachedQuotaGroups = quotaGroups
-      this.cachedFullReport = true
-    } else if (force) {
+      if (this.generation === gen) {
+        this.cachedQuotaGroups = quotaGroups
+        this.cachedFullReport = true
+      }
+    } else if (force && this.generation === gen) {
       this.cachedFullReport = false
     }
 
     const checkedAt = new Date().toISOString()
     const { definitions, report } = buildReportFromParsed(parsed, checkedAt, tier, quotaGroups)
-    this.cachedParsed = parsed
-    this.cachedReport = report
-    this.cachedAccountKey = key
-    this.expiresAt = Date.now() + this.ttlMs
-    this.writeDiskCache(key, definitions, report)
+    if (this.generation === gen) {
+      this.cachedParsed = parsed
+      this.cachedReport = report
+      this.cachedAccountKey = key
+      this.expiresAt = Date.now() + this.ttlMs
+      this.writeDiskCache(key, definitions, report)
+    }
     this.logger.debug('catalog', 'live catalog refreshed', {
       enabled: report.available.length,
       unavailable: report.unavailable.length,
@@ -299,8 +338,10 @@ export class ModelCatalog {
   }
 
   private definitionsForReport(report: CatalogAvailabilityReport): ModelDefinition[] {
-    const enabled = new Set(report.available.map((item) => item.id))
-    return MODEL_DEFINITIONS.filter((definition) => enabled.has(definition.id))
+    const byId = new Map(MODEL_DEFINITIONS.map((definition) => [definition.id, definition]))
+    return report.available
+      .map((item) => byId.get(item.id))
+      .filter((definition): definition is ModelDefinition => definition !== undefined)
   }
 
   private offlineReport(accountKey: string, errorMessage: string): { definitions: ModelDefinition[]; report: CatalogAvailabilityReport } {
@@ -314,9 +355,12 @@ export class ModelCatalog {
     if (fromDisk) {
       this.cachedReport = fromDisk.report
       this.cachedAccountKey = accountKey
-      const idSet = new Set(fromDisk.availableIds)
+      const byId = new Map(MODEL_DEFINITIONS.map((definition) => [definition.id, definition]))
+      const definitions = fromDisk.availableIds
+        .map((id) => byId.get(id))
+        .filter((definition): definition is ModelDefinition => definition !== undefined)
       return {
-        definitions: MODEL_DEFINITIONS.filter((definition) => idSet.has(definition.id)),
+        definitions: definitions.length > 0 ? definitions : this.definitionsForReport(fromDisk.report),
         report: { ...fromDisk.report, source: 'cached', error: errorMessage },
       }
     }
