@@ -405,7 +405,7 @@ test('client.js renders quota progress bars in Models tab, multi-account control
   assert.match(accText, /a2@example\.com/)
   assert.match(accText, /switchAccount/)
 
-  // 3. Switch GatewayPanel to Models tab and verify progress bars & reset labels render.
+  // 3. Switch GatewayPanel to Models tab and verify quota cards show bold 5h/weekly labels and clean model rows without redundant ID/quota/description.
   const modelsTabBtn = findElements(settingsAcc, (n) => n.props?.id === 'agw-tab-models')[0]
   modelsTabBtn.props.onClick()
   const settingsModels = renderComponent(settingsEntry.comp, settingsProps, 'GatewayPanel')
@@ -414,11 +414,16 @@ test('client.js renders quota progress bars in Models tab, multi-account control
   await new Promise((r) => setTimeout(r, 15))
   const modelsTreeLoaded = renderComponent(modelsTabPanel.type, modelsTabPanel.props, 'ModelsPanel')
   const modelsBars = findElements(modelsTreeLoaded, (n) => n.props?.role === 'progressbar')
-  assert.ok(modelsBars.length >= 3, 'ModelsPanel must render progress bars for quota groups and models')
+  assert.equal(modelsBars.length, 2, 'ModelsPanel must render progress bars in quota summary cards only')
   assert.equal(modelsBars[0].props['aria-valuenow'], 87)
-  assert.match(flattenText(modelsTreeLoaded), /quotaResets/)
+  const modelsText = flattenText(modelsTreeLoaded)
+  assert.match(modelsText, /quotaResets/)
   assert.equal(findElements(modelsTreeLoaded, (n) => n.props?.className === 'agw-panel-header').length, 1)
-  assert.ok(findElements(modelsTreeLoaded, (n) => String(n.props?.className || '').includes('agw-model-pct')).length >= 1)
+  const windowLabels = findElements(modelsTreeLoaded, (n) => n.props?.className === 'agw-quota-window').map(flattenText)
+  assert.deepEqual(windowLabels, ['5h', 'weekly'])
+  assert.equal(findElements(modelsTreeLoaded, (n) => n.props?.className === 'agw-model-id').length, 0)
+  assert.equal(findElements(modelsTreeLoaded, (n) => String(n.props?.className || '').includes('agw-model-pct')).length, 0)
+  assert.doesNotMatch(modelsText, /claude-sonnet-5-5/)
 
   // 4. Composer quota chip CSS stays borderless and aligns font/size/height with ModelSelect .trigger.
   const code = fs.readFileSync(CLIENT_PATH, 'utf8')

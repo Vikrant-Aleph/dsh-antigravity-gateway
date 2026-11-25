@@ -292,7 +292,8 @@
       .agw-quota-big.is-err { color: var(--dsw-alias-state-error-primary, #dc2626); }
       .agw-quota-bucket-wrap { display: flex; flex-direction: column; gap: 4px; }
       .agw-quota-bucket { font-size: 12px; color: var(--dsw-alias-label-secondary, #71717a); display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-      .agw-quota-reset { font-size: 12px; color: var(--dsw-alias-label-secondary, #71717a); }
+      .agw-quota-window { font-weight: 700; color: var(--dsw-alias-label-primary, #18181b); white-space: nowrap; }
+      .agw-quota-reset { font-size: 12px; color: var(--dsw-alias-label-secondary, #71717a); white-space: nowrap; }
       .agw-details { border-top: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.08)); padding-top: 8px; }
       .agw-details summary { font-size: 13px; font-weight: 500; color: var(--dsw-alias-label-primary, #18181b); cursor: pointer; padding: 4px 0; list-style: none; display: flex; align-items: center; justify-content: space-between; }
       .agw-details summary::-webkit-details-marker { display: none; }
@@ -432,6 +433,15 @@
       if (f <= 0) return 'is-err';
       if (f <= 0.25) return 'is-warn';
       return 'is-good';
+    }
+
+    /** @param {any} bucket */
+    function formatBucketWindowLabel(bucket) {
+      const w = bucket && typeof bucket.window === 'string' ? bucket.window.trim() : '';
+      const text = `${w} ${(bucket && bucket.displayName) || ''} ${(bucket && bucket.bucketId) || ''}`;
+      if (/^5\s*h$/i.test(w) || /\b5\s*h\b|five\s*hour/i.test(text)) return '5h';
+      if (/^(?:weekly|7\s*d)$/i.test(w) || /weekly|\b7\s*d\b/i.test(text)) return 'weekly';
+      return w || (bucket && bucket.displayName) || '';
     }
 
     /**
@@ -784,7 +794,7 @@
                     h('span', { className: `agw-quota-big${bigTone}` }, `${pct}%`)),
                   h(ProgressBar, { fraction: bucket.remainingFraction, label: `${group.displayName} ${bucket.displayName}` }),
                   h('div', { className: 'agw-quota-bucket' },
-                    h('span', null, `${bucket.displayName}${bucket.window ? ` (${bucket.window})` : ''}`),
+                    h('strong', { className: 'agw-quota-window' }, formatBucketWindowLabel(bucket)),
                     resetLabel ? h('span', { className: 'agw-quota-reset' }, `${t('quotaResets')} ${resetLabel}`) : null));
               })))) : null,
         report && available.length === 0 && unavailable.length === 0 ? h('p', { className: 'agw-note' }, t('modelsEmpty')) : null,
@@ -792,27 +802,17 @@
           h('h3', { className: 'agw-section-title' }, `${t('availableSection')} (${available.length})`),
           h('ul', { className: 'agw-model-list' },
             available.map((/** @type {any} */ model) => {
-              const resetLabel = formatResetTime(model.resetTime, t);
-              const hasQuota = typeof model.remainingFraction === 'number';
-              const pct = hasQuota ? Math.round(clampFraction(model.remainingFraction) * 100) : null;
-              const tone = hasQuota ? quotaTone(model.remainingFraction) : 'is-good';
-              const pctTone = tone === 'is-err' ? ' is-err' : tone === 'is-warn' ? ' is-warn' : '';
               const statusText = t(model.status === 'quota-exhausted' ? 'statusExhausted' : 'statusAvailable');
-              const subLeft = [statusText, model.efforts && model.efforts.length > 0 ? `${t('efforts')}: ${model.efforts.join(' / ')}` : ''].filter(Boolean).join(' · ');
               return h('li', { key: model.id, className: 'agw-model-row' },
                 h('div', { className: 'agw-model-head' },
                   h('div', { className: 'agw-model-identity' },
                     h('span', { className: 'agw-model-title' }, model.name || model.id),
-                    model.name && model.name !== model.id ? h('span', { className: 'agw-model-id' }, model.id) : null,
                     model.tagTitle ? h('span', { className: 'agw-badge is-warn' }, model.tagTitle) : null),
-                  pct !== null
-                    ? h('span', { className: `agw-model-pct${pctTone}` }, `${pct}%`)
-                    : h('span', { className: `agw-badge ${model.status === 'quota-exhausted' ? 'is-err' : 'is-in'}` }, statusText)),
-                hasQuota ? h(ProgressBar, { fraction: model.remainingFraction, label: model.name || model.id }) : null,
-                h('div', { className: 'agw-model-sub' },
-                  h('span', { className: `agw-model-status-text ${model.status === 'quota-exhausted' ? 'is-err' : 'is-in'}` }, subLeft),
-                  resetLabel ? h('span', { className: 'agw-quota-reset' }, `${t('quotaResets')} ${resetLabel}`) : null),
-                model.tagDescription ? h('p', { className: 'agw-model-reason' }, model.tagDescription) : null);
+                  h('span', { className: `agw-badge ${model.status === 'quota-exhausted' ? 'is-err' : 'is-in'}` }, statusText)),
+                model.efforts && model.efforts.length > 0
+                  ? h('div', { className: 'agw-model-sub' },
+                      h('span', null, `${t('efforts')}: ${model.efforts.join(' / ')}`))
+                  : null);
             }))) : null,
         unavailable.length > 0 ? h('details', { className: 'agw-details', ...(available.length === 0 ? { open: true } : {}) },
           h('summary', null,
@@ -822,8 +822,7 @@
             unavailable.map((/** @type {any} */ model) => h('li', { key: model.id, className: 'agw-model-row is-disabled' },
               h('div', { className: 'agw-model-head' },
                 h('div', { className: 'agw-model-identity' },
-                  h('span', { className: 'agw-model-title' }, model.name || model.id),
-                  model.name && model.name !== model.id ? h('span', { className: 'agw-model-id' }, model.id) : null),
+                  h('span', { className: 'agw-model-title' }, model.name || model.id)),
                 h('span', { className: `agw-badge ${model.status === 'disabled' ? 'is-err' : 'is-out'}` },
                   t(model.status === 'disabled' ? 'statusDisabled' : 'statusNotOffered'))),
               model.reasonTitle || model.reasonDetail
@@ -1069,7 +1068,7 @@
                   const resetStr = formatResetTime(b.resetTime, t);
                   return h('div', { key: bi, className: 'agw-quota-bucket-wrap' },
                     h('div', { className: 'agw-quota-bucket' },
-                      h('span', null, `${b.displayName}${b.window ? ` (${b.window})` : ''}`),
+                      h('strong', { className: 'agw-quota-window' }, formatBucketWindowLabel(b)),
                       h('strong', null, `${Math.round(clampFraction(b.remainingFraction) * 100)}%`)),
                     h(ProgressBar, { fraction: b.remainingFraction, label: `${g.displayName} ${b.displayName}` }),
                     resetStr ? h('span', { className: 'agw-quota-reset' }, `${t('quotaResets')} ${resetStr}`) : null);
