@@ -15,41 +15,63 @@
 
 ## 1. 架构
 
+代码按**四层轻量化单向依赖**组织（由 [architecture.test.mjs](tests/architecture.test.mjs) 静态 AST 守卫强制校验）：
+
 ```
+DSH Host / Cordis / WebServer
+   │
+   ▼
+src/index.ts                              薄装配入口（Config 绑定、ctx.effect、受控导出）
+   ├──▶ src/dsh/                          DSH 宿主适配层（唯一允许导入 @deepseek-ai/*）
+   │       ├──▶ src/core/                 运行时核心层（I/O、传输、OAuth、凭据、缓存、日志）
+   │       │       ├──▶ src/protocol/     纯协议层（零宿主/undici/fs/http/child_process）
+   │       │       └──▶ src/shared/         共享基础与契约（零内部依赖）
+   │       ├──▶ src/protocol/
+   │       └──▶ src/shared/
+   └──▶ src/core/
+
 DSH agent loop
    │  GenerateOptions / messages / tools
    ▼
-AntigravityBridgeAdapter            src/adapter.ts
-   ├── resolveRoute                 模型 id + 努力级 → wire 路由（src/models.ts）
-   ├── AuthManager.getCredential    单飞刷新（src/auth.ts）
-   ├── buildEnvelope                消息映射 + Claude 变换 + 元数据（src/payload.ts）
-   ├── AgyTransport.request         undici + 代理 + 超时（src/transport.ts）
-   ├── iterateSse / parseProviderEvent   SSE → 中性 part（src/response.ts）
-   └── StreamChunk 发射 + replayState
+AntigravityGatewayAdapter                 src/dsh/adapter.ts (0.x 保留 @deprecated AntigravityBridgeAdapter)
+   ├── resolveRoute                       模型 id + 努力级 → wire 路由（src/protocol/models.ts）
+   ├── AuthManager.getCredential          单飞刷新 + 调用方信号解耦（src/core/auth.ts）
+   ├── buildEnvelope                      消息映射 + Claude 变换 + 元数据（src/protocol/payload.ts）
+   ├── AgyTransport.request               undici 有界连接池 + 代理 + 超时（src/core/transport/）
+   ├── iterateSse / parseProviderEvent    SSE → 中性 part（src/core/transport/sse.ts + src/protocol/response.ts）
+   └── assembleStreamChunks               StreamChunk 状态机 + replayState（src/dsh/stream-assembler.ts）
    ▼
 https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse
    （传输失败时回退 https://cloudcode-pa.googleapis.com）
 ```
 
-其余模块：
+模块清单：
 
-| 模块 | 职责 |
-|---|---|
-| [constants.ts](../src/constants.ts) | OAuth 客户端、端点、路径、CLI 身份、Claude 提示常量 |
-| [models.ts](../src/models.ts) | 固定模型目录、wire 枚举、档位解析、别名规范化（§3） |
-| [catalog.ts](../src/catalog.ts) | 账号实时目录：fetchAvailableModels + TTL + 快照回退（§3.2） |
-| [credentials.ts](../src/credentials.ts) | DSH 凭据记录优先，owner-only 文件回退（§8） |
-| [oauth.ts](../src/oauth.ts) | PKCE S256、环回回调服务器、令牌交换/刷新（§8） |
-| [auth.ts](../src/auth.ts) | 登录编排、单飞刷新、项目发现、显式导入（§8） |
-| [payload.ts](../src/payload.ts) | envelope、字段序、labels、Claude 变换、签名回放（§4） |
-| [response.ts](../src/response.ts) | SSE 事件解析、usage、finishReason、签名提取（§5） |
-| [errors.ts](../src/errors.ts) | 失败分类、Retry-After、溢出/容量措辞检测（§7） |
-| [logger.ts](../src/logger.ts)、[log-service.ts](../src/log-service.ts) | 有界脱敏日志 + 工具/RPC 双入口（§9） |
-| [prompt-compat.ts](../src/prompt-compat.ts) | 429 身份句改写（§4.4） |
-| [commands.ts](../src/commands.ts) | /agw 命令族（§6.2） |
-| [account-service.ts](../src/account-service.ts) | 账号操作单一实现 + RPC + 环回守卫（§6.3） |
-| [client.js](../client.js) | 设置页浏览器模块（非 tsc 产物，§6.3） |
-| [index.ts](../src/index.ts) | Config schema + apply 装配 |
+| 层级 | 模块 | 职责 |
+|---|---|---|
+| **共享** | [errors.ts](src/shared/errors.ts) | `GatewayError` 失败分类、`Retry-After`、溢出/容量措辞检测（0.x 保留 `BridgeError` 别名） |
+| **共享** | [guards.ts](src/shared/guards.ts) | 运行时守卫（`isRecord`/`boundedString`）与 `raceWithAbort` |
+| **共享** | [fs-atomic.ts](src/shared/fs-atomic.ts) | 唯一临时文件名原子写盘与失败清理 |
+| **共享** | [rpc-contracts.ts](src/shared/rpc-contracts.ts) | 前后端共享 `/api` RPC 通道、命名空间、端点与 DTO 契约 |
+| **协议** | [constants.ts](src/protocol/constants.ts) | OAuth 客户端、端点、路径、CLI 身份、Claude 提示常量 |
+| **协议** | [models.ts](src/protocol/models.ts) | 固定模型目录、wire 枚举、档位解析、别名规范化（§3） |
+| **协议** | [session-metadata.ts](src/protocol/session-metadata.ts) | FNV-1a 64 会话键、`RequestSessionStore` 与 labels 元数据（§4.2） |
+| **协议** | [schema-sanitizer.ts](src/protocol/schema-sanitizer.ts) | 工具参数 JSON Schema 白名单清洗与空 schema 占位（§4.3） |
+| **协议** | [payload.ts](src/protocol/payload.ts) | envelope、字段序、消息/工具映射、Claude 变换、签名回放（§4） |
+| **协议** | [response.ts](src/protocol/response.ts) | SSE 事件解析、usage、finishReason、签名提取（§5） |
+| **协议** | [catalog-parser.ts](src/protocol/catalog-parser.ts) | `fetchAvailableModels`/配额/账号等级纯解析与有序报告构造（§3.2） |
+| **核心** | [transport/](src/core/transport/index.ts) | 环境变量/Windows 系统代理（`proxy.ts`）、有界 `Dispatcher` 池（`http-client.ts`）、即时中止 SSE 迭代（`sse.ts`） |
+| **核心** | [credentials.ts](src/core/credentials.ts) | DSH 凭据记录优先，owner-only 原子写文件镜像与晚挂载迁移（§8） |
+| **核心** | [oauth.ts](src/core/oauth.ts) | PKCE S256、环回回调服务器、令牌交换/刷新（§8） |
+| **核心** | [auth.ts](src/core/auth.ts) | 登录编排、信号解耦单飞刷新、项目发现、显式导入（§8） |
+| **核心** | [catalog.ts](src/core/catalog.ts) | 账号实时目录：single-flight 探测、TTL、保序缓存与离线兜底（§3.2） |
+| **核心** | [logger.ts](src/core/logger.ts) | 有界脱敏文件日志 + 内存环回退（§9） |
+| **宿主** | [types.ts](src/dsh/types.ts)、[config.ts](src/dsh/config.ts) | 宿主轻量结构接口；Schemastery `Config` 单一真相源推导 `GatewayConfig` |
+| **宿主** | [rpc.ts](src/dsh/rpc.ts) | 统一 `/api` JSON-RPC 注册、校验、loopback 守卫与完整 fiber/路由释放 |
+| **宿主** | [stream-assembler.ts](src/dsh/stream-assembler.ts)、[adapter.ts](src/dsh/adapter.ts) | DSH `LlmAdapter` 实现、流式块状态机、重试与错误映射（§7） |
+| **宿主** | [account-service.ts](src/dsh/account-service.ts)、[log-service.ts](src/dsh/log-service.ts) | 账号与日志双入口服务（UI RPC + `/agw` 命令 / `antigravity_gateway_log` 工具） |
+| **宿主** | [commands.ts](src/dsh/commands.ts)、[prompt-compat.ts](src/dsh/prompt-compat.ts) | `/agw` 命令族（§6.2）与 429 身份句改写钩子（§4.4） |
+| **前端/入口** | [client.js](client.js)、[index.ts](src/index.ts) | 零打包器设置页模块（`tsconfig.client.json` 检查，§6.3）与薄装配入口 |
 
 术语：**wire 路由**＝端点实际接受的模型名；**枚举**＝`labels.model_enum`
 里的 `MODEL_PLACEHOLDER_M…`；**固定快照**＝插件内置的模型定义表；
@@ -383,25 +405,36 @@ token 数），debug 级另有目录刷新、刷新令牌、端点回退等明�
 `REQUEST_DIAGNOSTICS_VERSION = 1`。
 
 双入口：`antigravity_gateway_log` 工具与 `/api/antigravity-gateway-logs/*`
-RPC（read/stat/clear/level），同一 LogService 实现，为将来设置页预留。
+RPC（read/stat/clear/level），同一 `LogService` 实现，经 `src/dsh/rpc.ts`
+统一挂载与账号控制一致的 `127.0.0.1` 环回守卫。
 
-## 10. 测试、发布与协议更新
+## 10. 测试、发布、演进剧本与排障
 
-离线测试（`npm test`，102 项）不访问 Google：模型/载荷/schema/响应/传输/日志/
-目录/可用性与配额/OAuth/账号服务/凭据耐久单元验证 + 对本机假端点的适配器
-端到端（含并行同名工具调用、401 刷新重放、404 禁用原因诊断、429、溢出、
-签名回放、模型 envelope 逐字段断言），以及完整登录链路（本地回调 → 令牌
-交换 → 项目发现 → 凭据落盘）与账号 RPC 环回策略。
+离线验证（`npm run verify` 包含 `typecheck:ts` + `typecheck:client` + `build` + 137 项 `node:test`）不访问 Google：
+- **单元与协议层**：模型路由/载荷/schema/响应/catalog 解析/传输/代理/日志/凭据耐久/原子写盘/命令/提示兼容；
+- **架构与契约守卫**：[architecture.test.mjs](tests/architecture.test.mjs) 校验四层单向依赖与无循环引用；[client-contract.test.mjs](tests/client-contract.test.mjs) 校验 `client.js` 加载安全、`#agw-styles` 去重与前后端 `rpc-contracts.ts` 100% 一致；
+- **端到端集成（本机假端点）**：文本/并行同名工具调用/401 刷新重放/404 禁用原因诊断/429/503 容量退避恢复/流内错误/空响应/多轮思考签名回放/卸载释放回调端口与 RPC 路由。
 
-CI：Node 22/24 × Ubuntu/Windows，typecheck + build + test + 工作树清洁
-检查。发布：推 `v*` 标签 → 身份校验（标签=package.json=CHANGELOG 小节=
-README 引用）→ 构建测试 → 打包校验 → SHA256 → GitHub Release（说明取
-CHANGELOG 小节）。已存在 Release 不覆盖；标签移动拒绝发布。
+CI：Node 22/24 × Ubuntu/Windows 矩阵，执行 `typecheck` + `build` + `test:only` + 打包产物校验 + 工作树清洁检查。
+发布：推 `v*` 标签 → 身份校验（标签=package.json=CHANGELOG 小节=README 引用）→ 全量校验 → 打包校验（禁止包含 `.npm-cache/`、`node_modules/`、`docs/refactoring/`）→ SHA256 → GitHub Release。
 
-协议漂移更新方法：
-1. 用 mitmproxy 抓 agy CLI 当前版本的内容请求，核对 UA、字段序、labels、
-   thinkingConfig 形状；更新 constants.ts / payload.ts 与本文档日期。
-2. 新模型：读 CLI 目录或抓包拿 wire 名与枚举，加入 MODEL_DEFINITIONS，
-   补路由测试。
-3. 某路由被服务端移除后：后端拒绝会按标准失败码返回；届时从固定快照
-   移除或保留为历史别名，更新 CHANGELOG。
+### 常见变更演进剧本（Playbooks）
+
+1. **新增或下线 Antigravity 模型**：
+   - 在 [src/protocol/models.ts](src/protocol/models.ts) 更新 `MODEL_DEFINITIONS`（或 `ID_ALIASES`），**必须**核对来自最新 `agy CLI` 目录或抓包的真实 wire 名、`model_enum` 与限额观测依据（标注社区观测值）。
+   - 在 [tests/models.test.mjs](tests/models.test.mjs) 补齐路由/档位/枚举断言，必要时在 [tests/catalog.test.mjs](tests/catalog.test.mjs) 补充可用性解析测试。
+2. **应对 Antigravity 上游协议漂移**：
+   - 定位层完全收敛在 `src/protocol/`（如 [constants.ts](src/protocol/constants.ts) 的 UA/端点/路径、[payload.ts](src/protocol/payload.ts) 的字段序/labels/Claude 变换、[schema-sanitizer.ts](src/protocol/schema-sanitizer.ts) 的 Schema 白名单、[response.ts](src/protocol/response.ts) 的 SSE/签名提取）及 [src/core/transport/](src/core/transport/index.ts)。
+   - 先更新日期标注与脱敏观测记录，再修改协议模块并在 `tests/{payload,schema,response,adapter}.test.mjs` 补充回归测试。
+3. **应对 DSH 宿主版本升级**：
+   - 宿主接口收敛在 `src/dsh/`（如 [types.ts](src/dsh/types.ts)、[config.ts](src/dsh/config.ts)、[rpc.ts](src/dsh/rpc.ts)、[adapter.ts](src/dsh/adapter.ts)、[stream-assembler.ts](src/dsh/stream-assembler.ts)）与前端 [client.js](client.js)。
+   - 更新后必须通过 `npm run verify`（含 `typecheck:client` 与 `client-contract.test.mjs`）。
+
+### 已验证运行环境与典型排障
+
+- **已验证环境**：Node.js `24.18.0`（Windows 11 本地实测通过离线验证；CI 覆盖 Ubuntu/Windows × Node 22/24）；DSH 目标开发基线 `@deepseek-ai/dsh-llm@0.2.2-rc.5` / `@deepseek-ai/cordis@4.1.0`。真实 Google 上游调用与 DSH Desktop 完整宿主流程需在宿主内人工验证。
+- **典型错误定位（排查时只看脱敏日志 `antigravity_gateway_log`）**：
+  - `AUTH` / 401 重放失败：检查登录态（`/agw status`）或重新 `/agw login` / `/agw import`。
+  - `MODEL_UNSUPPORTED`（404）：账号计划未包含该模型或上游暂未开放，在设置页「模型」tab 或 `/agw models` 查看上游 `reasonTitle`/`reasonDetail`。
+  - `loopback-required`：DSH WebServer 未绑定 `127.0.0.1`（按安全策略账号与日志面板均 fail-closed）。
+  - `TRANSPORT` / 连接超时：GUI 启动不继承 shell 环境变量时确认 `useSystemProxy: true`（Windows 系统代理）或显式配置 `proxyUrl`。

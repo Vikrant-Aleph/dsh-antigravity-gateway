@@ -161,18 +161,22 @@ dsh-antigravity-auth README apply as well.
 
 ```sh
 npm ci
-npm run typecheck
+npm run typecheck   # covers both src/**/*.ts and client.js
 npm run build
-npm test          # 102 offline tests; no Google calls
+npm test            # builds then runs 137 offline tests; no Google calls
+npm run verify      # typecheck + build + full offline suite
 ```
 
 Coverage: model resolution (wire enums and tier budgets), tool-schema
 sanitization, envelope and label shape, SSE parsing, OAuth flow, logger
-bounds/redaction, availability & quota parsing (including disabled-model
-exclusion and disk-cache fallback), parallel same-name tool calls, and
-end-to-end adapter streams against a local fake endpoint (text / tool calls /
-401 refresh replay / 404 diagnosis / 429 / context overflow / history
-signature replay).
+bounds/redaction, concurrent atomic writes, availability & quota parsing
+(disabled-model exclusion and ordered cache fallback), parallel same-name
+tool calls, four-layer architecture dependency guards, `client.js` safety &
+RPC contract parity, and end-to-end adapter streams against a local fake
+endpoint (text / tool calls / 401 refresh replay / 404 diagnosis / 429 / 503
+capacity backoff / context overflow / history signature replay). See
+[CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) for
+contribution guidelines and security invariants.
 
 ### Release process
 

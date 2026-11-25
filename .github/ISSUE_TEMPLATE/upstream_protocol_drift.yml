@@ -1,0 +1,27 @@
+name: Upstream protocol or model change
+description: Report an Antigravity endpoint, model catalog, or wire enum change
+labels: ["upstream-protocol"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when the Antigravity CLI or Cloud Code Assist endpoint changes wire model ids, `model_enum` placeholders, request/SSE shapes, or plan gates. **Never paste real tokens or private payloads.**
+  - type: input
+    id: cli_version
+    attributes:
+      label: Observed Antigravity CLI version
+      placeholder: "e.g. 1.5.8"
+    validations:
+      required: true
+  - type: input
+    id: endpoint_status
+    attributes:
+      label: Endpoint & HTTP status / error code
+      placeholder: "e.g. v1internal:streamGenerateContent -> 400 INVALID_ARGUMENT"
+  - type: textarea
+    id: details
+    attributes:
+      label: Sanitized wire observation
+      description: Describe the changed model id, schema keyword, header, or response shape.
+    validations:
+      required: true

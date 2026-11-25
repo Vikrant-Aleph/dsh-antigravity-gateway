@@ -102,3 +102,14 @@
 - **回滚方式**：恢复 `withIdleTimeout` 原逻辑。
 - **是否需用户确认**：随方案整体确认
 - **确认状态**：已获用户批准（2026-11-26，按推荐默认方案执行）
+
+---
+
+## D-007（Phase 4 工程化评估）：不额外引入 ESLint / Biome，以严格 TS + `checkJs` + `.editorconfig` 作为零负担门禁
+
+- **日期**：2026-11-26
+- **背景**：`P4-001` 要求评估是否引入轻量格式化/Lint 工具（如 `biome` 或 `eslint`）。
+- **关联任务**：`P4-001`
+- **评估与最终选择**：不额外引入 `eslint` 或 `biome` npm 包，保持 `package-lock.json` 零额外依赖；通过 `tsc -p tsconfig.json --noEmit`（`strict` + `noUncheckedIndexedAccess` + `noImplicitOverride`）、`tsc -p tsconfig.client.json --noEmit`（`checkJs` + `strict`）、`tests/architecture.test.mjs`、`tests/client-contract.test.mjs` 与 `.editorconfig` 实现零维护噪音的质量门禁。
+- **原因**：当前项目仅 ~5.3k 行，严格 TypeScript + AST 架构测试 + `client.js` 契约测试已覆盖静态正确性与风格一致性；引入新第三方 Lint 包会增大 `package-lock.json` 体积并带来规则升级噪音。
+- **回滚方式**：如后续团队确需统一格式器，可在 `devDependencies` 中按需增补 `biome`（单包零传递依赖）。

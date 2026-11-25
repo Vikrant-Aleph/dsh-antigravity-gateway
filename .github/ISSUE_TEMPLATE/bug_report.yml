@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a bug in dsh-antigravity-gateway (adapter, OAuth, settings panel, or proxy)
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security reminder:** NEVER attach OAuth refresh/access tokens (`1//...`, `ya29....`), authorization URLs, `credential.json`, or unredacted `dumpRequestsTo` captures. Use redacted diagnostic logs from `antigravity_gateway_log` instead.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Concise description of the issue and expected behavior.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Plugin & DSH versions
+      placeholder: "dsh-antigravity-gateway 0.1.0 / DSH 0.2.2-rc.5"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS & Node.js version
+      placeholder: "Windows 11 / Node 24.x"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted diagnostic logs or error code
+      description: Error code (e.g. AUTH, MODEL_UNSUPPORTED, RATE_LIMIT), HTTP status, and redacted log lines.
+      render: text
+  - type: checkboxes
+    id: security_check
+    attributes:
+      label: Redaction check
+      options:
+        - label: I confirmed there are no tokens, credentials, or private conversation payloads attached.
+          required: true

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Technical design & protocol notes
+    url: https://github.com/Vikrant-Aleph/dsh-antigravity-gateway/blob/main/TECHNICAL.us.md
+    about: Architecture, wire constants, and troubleshooting guide

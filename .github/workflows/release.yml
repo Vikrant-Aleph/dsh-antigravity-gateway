@@ -46,10 +46,11 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           test -z "$(git status --porcelain)"
-      - name: Build and run offline tests (not live smoke)
+      - name: Typecheck, build, and run offline tests (not live smoke)
         run: |
+          npm run typecheck
           npm run build
-          npm test
+          npm run test:only
       - name: Pack exactly one validated plugin archive and checksum
         env:
           RELEASE_TAG: ${{ github.ref_name }}

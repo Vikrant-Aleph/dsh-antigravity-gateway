@@ -68,7 +68,11 @@ if (archiveDir) {
     for (const file of required) {
       if (!listing.split('\n').includes(file)) failures.push(`archive is missing ${file}`)
     }
-    if (listing.includes('package/.npm-cache/') || listing.includes('package/node_modules/')) {
+    if (
+      listing.includes('package/.npm-cache/') ||
+      listing.includes('package/node_modules/') ||
+      listing.includes('package/docs/refactoring/')
+    ) {
       failures.push('archive contains development-only directories')
     }
   }

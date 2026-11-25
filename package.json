@@ -32,6 +32,7 @@
     "typecheck": "npm run typecheck:ts && npm run typecheck:client",
     "test:only": "node --test \"tests/*.test.mjs\"",
     "test": "npm run build && npm run test:only",
+    "verify": "npm run typecheck && npm test",
     "prepack": "npm run build",
     "pack:local": "npm run build && npm pack"
   },
@@ -52,7 +53,7 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
-    "docs",
+    "docs/DETAIL.md",
     "LICENSE",
     "CHANGELOG.md",
     "README.md",

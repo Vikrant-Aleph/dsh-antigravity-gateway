@@ -1,12 +1,12 @@
 # Refactoring Progress
 
 ## Current State
-- 当前阶段：Phase 4（工程化、CI/CD、GitHub 开源治理与配套文档）
+- 当前阶段：Phase 5（最终全量验收、兼容性核对与 `REPORT.md` 交付）
 - 授权状态：方案已批准（用户于 2026-11-26 正式批准 `PLAN.md` 及 `D-001`~`D-006`，授权执行 Phase 2–5）
-- 当前任务：P4-001（工具链与质量门禁统一）
+- 当前任务：P5-001（全量验证与本地打包干跑）
 - 基准提交：`aedfa19f7bafd5f6a70c40a00c57b4f7fc5536f8`
 - 当前分支与 HEAD：`refactor/modular-architecture`
-- 最近更新时间：2026-11-26 02:02 +08:00
+- 最近更新时间：2026-11-26 02:14 +08:00
 
 ## Task List
 | ID | 任务 | 依赖 | 状态 | 验证证据 / 阻塞原因 |
@@ -28,12 +28,12 @@
 | P3-002 | P1 缺陷闭环（Catalog 单飞与保序、Transport 有界池、SSE 中止挂起、原子写盘测试） | P3-001 | DONE | `npm run typecheck` (0) + `npm test`（129/129 pass，总耗时 ~412ms） |
 | P3-003 | P2 细节清理与流式/工具/签名/超时集成测试加固 | P3-002 | DONE | `npm run typecheck` (0) + `npm test`（134/134 pass） |
 | P3-004 | `client.js` 类型检查、样式去重、`LogPanel` 对齐与前后端契约测试 | P3-001 | DONE | `npm run typecheck` (含 `typecheck:client`, 0) + `npm test`（137/137 pass） |
-| P4-001 | 工具链与质量门禁统一（`typecheck`、`test`、`.gitignore`/`files` 校验） | P3-004 | IN_PROGRESS | 进行中 |
-| P4-002 | CI/CD 工作流审查与加固（`ci.yml` / `release.yml`） | P4-001 | TODO | 等待 Phase 2/4 授权 |
-| P4-003 | GitHub 开源治理基建（`.editorconfig`、Templates、`CONTRIBUTING.md`、`SECURITY.md`） | P4-001 | TODO | 等待 Phase 2/4 授权 |
-| P4-004 | 按 `D-005` 同步更新项目文档与 3 类变更 Playbooks | P4-001 | TODO | 等待 Phase 2/4 授权 |
-| P4-005 | 收敛根目录 `AGENTS.md` 为长期维护指南 | P4-004 | TODO | 等待 Phase 2/4 授权 |
-| P5-001 | 全量验证与本地打包干跑（`npm run pack:local` + `release-check.mjs`） | P4-005 | TODO | 等待 Phase 2/5 授权 |
+| P4-001 | 工具链与质量门禁统一（`typecheck`、`test`、`.gitignore`/`files` 校验） | P3-004 | DONE | `npm run verify` 通过；新增 `D-007`；`package.json#files` 精确为 `docs/DETAIL.md` |
+| P4-002 | CI/CD 工作流审查与加固（`ci.yml` / `release.yml`） | P4-001 | DONE | `ci.yml` 与 `release.yml` 补充 `typecheck` 与 `npm pack` 产物校验；`release-check.mjs` 禁止打入 `docs/refactoring/` |
+| P4-003 | GitHub 开源治理基建（`.editorconfig`、Templates、`CONTRIBUTING.md`、`SECURITY.md`） | P4-001 | DONE | 已新增 `.editorconfig`、3 类 Issue 表单、PR 模板、`CONTRIBUTING.md`、`SECURITY.md` |
+| P4-004 | 按 `D-005` 同步更新项目文档与 3 类变更 Playbooks | P4-001 | DONE | 已更新 `TECHNICAL.md`、`TECHNICAL.us.md`、`README.md`、`README.us.md`（修复全部 `../` 链接、同步 137 测试与 3 类 Playbooks） |
+| P4-005 | 收敛根目录 `AGENTS.md` 为长期维护指南 | P4-004 | DONE | 已更新 `AGENTS.md` 为常驻维护指南（含四层职责、命令、变更落点与安全红线） |
+| P5-001 | 全量验证与本地打包干跑（`npm run pack:local` + `release-check.mjs`） | P4-005 | IN_PROGRESS | 进行中 |
 | P5-002 | 对照基线逐项核查功能、数据兼容与安全红线 | P5-001 | TODO | 等待 Phase 2/5 授权 |
 | P5-003 | 生成 `docs/refactoring/REPORT.md`、更新终态与人工 E2E 清单 | P5-002 | TODO | 等待 Phase 2/5 授权 |
 
@@ -56,6 +56,7 @@
 - `P3-002`：修复 4 项 P1 缺陷——`ModelCatalog.fetchLiveState` single-flight 与代数防过期写入、`definitionsForReport`/`offlineReport` 严格保留 `agentOrder` 顺序；`AgyTransport` 有界 `Map` 连接池与完整 `close()`；`iterateSse` 立即响应 `AbortSignal`（单测耗时从 5007ms 降至 25ms）；补充并发原子写盘零残留 `.tmp` 回归测试；`npm test`（129/129，412ms）通过。
 - `P3-003`：`registerModelDiscovery` 与 `adapter` 统一随 `imageInput` 收口 `inputModalities`；`dumpRequestsTo` 改异步 `appendFile`；补充 `imageInput: false`、503 容量退避恢复、流内错误/空响应、多轮工具+签名回放集成测试；`npm run typecheck` 与 `npm test`（134/134，548ms）通过。
 - `P3-004`：为 `client.js` 增加 `// @ts-check` + JSDoc（新增 `tsconfig.client.json` 与 `typecheck:client` 纳入 `npm run typecheck`）、`<style id="agw-styles">` 引用计数去重、`LogPanel` 对齐 `loopback-required` 提示，并新增 `tests/client-contract.test.mjs` 校验加载安全性与 `src/shared/rpc-contracts.ts` 100% 一致；`npm run typecheck` 与 `npm test`（137/137）通过。
+- `P4-001`~`P4-005`：统一 `npm run verify` 门禁并将 `package.json#files` 的 `docs` 精确为 `docs/DETAIL.md`；加固 `ci.yml`/`release.yml` 与 `release-check.mjs`；新增 `.editorconfig`、Issue/PR 模板、`CONTRIBUTING.md`、`SECURITY.md`；按 `D-005` 同步 `TECHNICAL*.md`/`README*.md`（修复失效 `../` 链接、同步 137 测试与 3 类维护 Playbooks）并收敛 `AGENTS.md`。
 
 ## Work in Progress
 - `P1-003`：等待向用户汇报审计结论、目标架构、实施计划及 `D-001`~`D-006` 决策确认。

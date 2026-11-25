@@ -1,0 +1,29 @@
+name: Compatibility issue
+description: Report a DSH host version, OS, or network/proxy compatibility issue
+labels: ["compatibility"]
+body:
+  - type: input
+    id: environment
+    attributes:
+      label: OS, Node.js, and DSH host version
+      placeholder: "Windows 11 / Node 22.x / DSH 0.2.x"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Plugin installation / loading
+        - Settings panel (client.js)
+        - System / HTTP proxy resolution
+        - Credential storage / migration
+        - Slash commands (/agw)
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Steps to reproduce & observed behavior
+    validations:
+      required: true

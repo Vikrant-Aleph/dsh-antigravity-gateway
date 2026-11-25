@@ -19,41 +19,63 @@ whatever the account's live response says.
 
 ## 1. Architecture
 
+The codebase follows a **lightweight four-layer unidirectional dependency architecture** enforced statically by [architecture.test.mjs](tests/architecture.test.mjs):
+
 ```
+DSH Host / Cordis / WebServer
+   │
+   ▼
+src/index.ts                              Thin entrypoint (Config wiring, ctx.effect, controlled exports)
+   ├──▶ src/dsh/                          DSH host adaptation (ONLY directory allowed to import @deepseek-ai/*)
+   │       ├──▶ src/core/                 Runtime core (I/O, transport, OAuth, credentials, catalog, logger)
+   │       │       ├──▶ src/protocol/     Pure protocol layer (no host/undici/fs/http/child_process imports)
+   │       │       └──▶ src/shared/         Shared primitives & contracts (zero internal dependencies)
+   │       ├──▶ src/protocol/
+   │       └──▶ src/shared/
+   └──▶ src/core/
+
 DSH agent loop
    │  GenerateOptions / messages / tools
    ▼
-AntigravityBridgeAdapter            src/adapter.ts
-   ├── resolveRoute                 model id + effort → wire route (src/models.ts)
-   ├── AuthManager.getCredential    single-flight refresh (src/auth.ts)
-   ├── buildEnvelope                message mapping + Claude transforms + metadata (src/payload.ts)
-   ├── AgyTransport.request         undici + proxy + timeouts (src/transport.ts)
-   ├── iterateSse / parseProviderEvent   SSE → neutral parts (src/response.ts)
-   └── StreamChunk emission + replayState
+AntigravityGatewayAdapter                 src/dsh/adapter.ts (@deprecated AntigravityBridgeAdapter alias in 0.x)
+   ├── resolveRoute                       model id + effort → wire route (src/protocol/models.ts)
+   ├── AuthManager.getCredential          single-flight refresh, caller-abort decoupled (src/core/auth.ts)
+   ├── buildEnvelope                      message mapping + Claude transforms + metadata (src/protocol/payload.ts)
+   ├── AgyTransport.request               undici bounded dispatcher pool + proxy + timeouts (src/core/transport/)
+   ├── iterateSse / parseProviderEvent    SSE → neutral parts (src/core/transport/sse.ts + src/protocol/response.ts)
+   └── assembleStreamChunks               StreamChunk state machine + replayState (src/dsh/stream-assembler.ts)
    ▼
 https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse
    (fallback on transport failure: https://cloudcode-pa.googleapis.com)
 ```
 
-Other modules:
+Modules:
 
-| Module | Role |
-|---|---|
-| [constants.ts](../src/constants.ts) | OAuth client, endpoints, paths, CLI identity, Claude prompt constants |
-| [models.ts](../src/models.ts) | Pinned catalog, wire enums, tier resolution, alias normalization (§3) |
-| [catalog.ts](../src/catalog.ts) | Per-account live catalog: fetchAvailableModels + TTL + snapshot fallback (§3.2) |
-| [credentials.ts](../src/credentials.ts) | DSH credential record first, owner-only file fallback (§8) |
-| [oauth.ts](../src/oauth.ts) | PKCE S256, loopback callback server, token exchange/refresh (§8) |
-| [auth.ts](../src/auth.ts) | Login orchestration, single-flight refresh, project discovery, explicit import (§8) |
-| [payload.ts](../src/payload.ts) | Envelope, field order, labels, Claude transforms, signature replay (§4) |
-| [response.ts](../src/response.ts) | SSE event parsing, usage, finishReason, signature extraction (§5) |
-| [errors.ts](../src/errors.ts) | Failure classification, Retry-After, overflow/capacity wording (§7) |
-| [logger.ts](../src/logger.ts), [log-service.ts](../src/log-service.ts) | Bounded redacted log + tool/RPC dual access (§9) |
-| [prompt-compat.ts](../src/prompt-compat.ts) | 429 identity-sentence rewrite (§4.4) |
-| [commands.ts](../src/commands.ts) | /agw command family (§6.2) |
-| [account-service.ts](../src/account-service.ts) | Single account-operation implementation + RPC + loopback guard (§6.3) |
-| [client.js](../client.js) | Settings-page browser module (not a tsc product, §6.3) |
-| [index.ts](../src/index.ts) | Config schema + apply wiring |
+| Layer | Module | Role |
+|---|---|---|
+| **Shared** | [errors.ts](src/shared/errors.ts) | `GatewayError` classification, `Retry-After`, overflow/capacity detection (`BridgeError` alias in 0.x) |
+| **Shared** | [guards.ts](src/shared/guards.ts) | Runtime guards (`isRecord`/`boundedString`) and `raceWithAbort` |
+| **Shared** | [fs-atomic.ts](src/shared/fs-atomic.ts) | Cross-platform atomic file writes with unique temp filenames & failure cleanup |
+| **Shared** | [rpc-contracts.ts](src/shared/rpc-contracts.ts) | Shared `/api` RPC channel, namespaces, endpoints, and DTO contracts |
+| **Protocol** | [constants.ts](src/protocol/constants.ts) | OAuth client, endpoints, paths, CLI identity, Claude prompt constants |
+| **Protocol** | [models.ts](src/protocol/models.ts) | Pinned catalog, wire enums, tier resolution, alias normalization (§3) |
+| **Protocol** | [session-metadata.ts](src/protocol/session-metadata.ts) | FNV-1a 64 session keys, `RequestSessionStore`, and request labels (§4.2) |
+| **Protocol** | [schema-sanitizer.ts](src/protocol/schema-sanitizer.ts) | Tool-parameter JSON Schema whitelist projection & empty-schema placeholder (§4.3) |
+| **Protocol** | [payload.ts](src/protocol/payload.ts) | Envelope, field order, message/tool mapping, Claude transforms, signature replay (§4) |
+| **Protocol** | [response.ts](src/protocol/response.ts) | SSE event parsing, usage, finishReason, signature extraction (§5) |
+| **Protocol** | [catalog-parser.ts](src/protocol/catalog-parser.ts) | Pure parsers for `fetchAvailableModels`, quota summary, tier metadata, and reports (§3.2) |
+| **Core** | [transport/](src/core/transport/index.ts) | Env/Windows proxy (`proxy.ts`), bounded `Dispatcher` pool (`http-client.ts`), abort-responsive SSE (`sse.ts`) |
+| **Core** | [credentials.ts](src/core/credentials.ts) | DSH credential record first, owner-only atomic file mirror & late-mount migration (§8) |
+| **Core** | [oauth.ts](src/core/oauth.ts) | PKCE S256, loopback callback server, token exchange/refresh (§8) |
+| **Core** | [auth.ts](src/core/auth.ts) | Login orchestration, decoupled single-flight refresh, project discovery, explicit import (§8) |
+| **Core** | [catalog.ts](src/core/catalog.ts) | Per-account live catalog: single-flight probe, TTL, order-preserving cache & fallback (§3.2) |
+| **Core** | [logger.ts](src/core/logger.ts) | Bounded redacted log + in-memory ring fallback (§9) |
+| **DSH** | [types.ts](src/dsh/types.ts), [config.ts](src/dsh/config.ts) | Host structural interfaces; Schemastery `Config` single source of truth deriving `GatewayConfig` |
+| **DSH** | [rpc.ts](src/dsh/rpc.ts) | Unified `/api` JSON-RPC registrar, validation, loopback guard & full fiber/route disposal |
+| **DSH** | [stream-assembler.ts](src/dsh/stream-assembler.ts), [adapter.ts](src/dsh/adapter.ts) | DSH `LlmAdapter` implementation, chunk state machine, retries & error mapping (§7) |
+| **DSH** | [account-service.ts](src/dsh/account-service.ts), [log-service.ts](src/dsh/log-service.ts) | Single-implementation account & log services (UI RPC + `/agw` commands / `antigravity_gateway_log` tool) |
+| **DSH** | [commands.ts](src/dsh/commands.ts), [prompt-compat.ts](src/dsh/prompt-compat.ts) | `/agw` command family (§6.2) and 429 identity-sentence rewrite hook (§4.4) |
+| **Client/Entry** | [client.js](client.js), [index.ts](src/index.ts) | Zero-bundler settings module (`tsconfig.client.json`-checked, §6.3) & thin wiring entrypoint |
 
 Terms: **wire route** = the model name the endpoint accepts; **enum** = the
 `MODEL_PLACEHOLDER_M…` value in `labels.model_enum`; **pinned snapshot** =
@@ -435,31 +457,37 @@ token refresh, and endpoint-fallback detail.
 
 Dual access: the `antigravity_gateway_log` tool and
 `/api/antigravity-gateway-logs/*` RPC (read/stat/clear/level) share one
-LogService implementation, reserved for a future settings page.
+`LogService` implementation and mount the same `127.0.0.1` loopback guard via
+`src/dsh/rpc.ts` as the account service.
 
-## 10. Testing, releases, and protocol updates
+## 10. Testing, releases, playbooks, and troubleshooting
 
-Offline tests (`npm test`, 102 cases) never call Google: unit verification
-of models/payload/schema/response/transport/logger/catalog/availability and
-quota/OAuth/account-service/credential-durability plus end-to-end adapter
-streams against a local fake endpoint (parallel same-name tool calls, 401
-refresh replay, 404 disabled-reason diagnosis, 429, overflow, signature
-replay, and field-by-field model envelope assertions), the full login round
-trip (local callback → token exchange → project discovery → stored
-credential), and the account RPC loopback policy.
+Offline verification (`npm run verify`: `typecheck:ts` + `typecheck:client` +
+`build` + 137 `node:test` cases) never calls Google:
+- **Unit & protocol layers**: models/payload/schema/response/catalog-parser/transport/proxy/logger/atomic-writes/commands/prompt-compat.
+- **Architecture & contract guards**: [architecture.test.mjs](tests/architecture.test.mjs) enforces the four-layer unidirectional boundaries and cycle freedom; [client-contract.test.mjs](tests/client-contract.test.mjs) verifies `client.js` load safety, `#agw-styles` deduplication, and 100% alignment with `rpc-contracts.ts`.
+- **End-to-end integration (local fake server)**: text, parallel same-name tool calls, 401 refresh replay, 404 disabled-reason diagnosis, 429, 503 capacity backoff recovery, in-stream error/empty response, multi-turn thinking-signature replay, and plugin unload releasing the OAuth callback port & RPC routes.
 
-CI: Node 22/24 × Ubuntu/Windows, typecheck + build + test + clean-tree check.
-Release: push a `v*` tag → identity validation (tag = package.json =
-CHANGELOG section = README references) → build + tests → pack validation →
-SHA256 → GitHub Release (notes from the CHANGELOG section). Existing
-releases are never overwritten; a moved tag refuses publication.
+CI: Node 22/24 × Ubuntu/Windows matrix running `typecheck`, `build`, `test:only`, archive validation, and clean-tree check.
+Release: push a `v*` tag → identity validation → full verify → pack validation (rejecting `.npm-cache/`, `node_modules/`, `docs/refactoring/`) → SHA256 → GitHub Release.
 
-Protocol-drift update procedure:
-1. Capture the current agy CLI's content requests with mitmproxy; verify UA,
-   field order, labels, and thinkingConfig shape; update constants.ts /
-   payload.ts and this document's dates.
-2. New models: read the CLI catalog or captures for wire names and enums,
-   add to MODEL_DEFINITIONS, extend route tests.
-3. When a route is removed server-side: backend rejections surface as
-   standard failure codes; then remove it from the pinned snapshot or keep
-   it as a historical alias, and update the CHANGELOG.
+### Maintenance Playbooks
+
+1. **Adding or removing Antigravity models**:
+   - Edit `MODEL_DEFINITIONS` (and `ID_ALIASES` if needed) in [src/protocol/models.ts](src/protocol/models.ts), backed by real `agy CLI` catalog/capture wire names, `model_enum`, and documented limit observations.
+   - Add route/tier assertions in [tests/models.test.mjs](tests/models.test.mjs) and availability parsing coverage in [tests/catalog.test.mjs](tests/catalog.test.mjs) if applicable.
+2. **Following Antigravity upstream protocol drift**:
+   - Protocol logic is isolated inside `src/protocol/` ([constants.ts](src/protocol/constants.ts), [payload.ts](src/protocol/payload.ts), [schema-sanitizer.ts](src/protocol/schema-sanitizer.ts), [response.ts](src/protocol/response.ts), [catalog-parser.ts](src/protocol/catalog-parser.ts)) and [src/core/transport/](src/core/transport/index.ts).
+   - Update capture dates and sanitized observations first, adjust the protocol module, and add regression cases in `tests/{payload,schema,response,adapter}.test.mjs`.
+3. **Adapting to DSH host upgrades**:
+   - Host contracts are isolated inside `src/dsh/` ([types.ts](src/dsh/types.ts), [config.ts](src/dsh/config.ts), [rpc.ts](src/dsh/rpc.ts), [adapter.ts](src/dsh/adapter.ts), [stream-assembler.ts](src/dsh/stream-assembler.ts)) and [client.js](client.js).
+   - Run `npm run verify` afterwards to verify both TypeScript and `client.js` typechecking + contract tests.
+
+### Verified Environment & Troubleshooting
+
+- **Verified environment**: Node.js `24.18.0` (Windows 11 offline suite; CI covers Ubuntu/Windows × Node 22/24); DSH target baseline `@deepseek-ai/dsh-llm@0.2.2-rc.5` / `@deepseek-ai/cordis@4.1.0`. Live Google upstream traffic and full DSH Desktop runtime flows require manual E2E checks inside DSH.
+- **Troubleshooting (check redacted logs via `antigravity_gateway_log`)**:
+  - `AUTH` / 401 replay failure: inspect `/agw status` and re-run `/agw login` or `/agw import`.
+  - `MODEL_UNSUPPORTED` (404): model is plan-locked or not offered; inspect Settings → Models or `/agw models` for `reasonTitle`/`reasonDetail`.
+  - `loopback-required`: DSH WebServer is not bound to `127.0.0.1` (both account and log RPCs fail closed).
+  - `TRANSPORT` / connect timeout: verify `useSystemProxy: true` on GUI-started Windows hosts or configure `proxyUrl` explicitly.

@@ -145,15 +145,18 @@ GUI 启动的 Host 不会继承 shell 的代理环境变量，系统代理自动
 
 ```sh
 npm ci
-npm run typecheck
+npm run typecheck   # 覆盖 src/**/*.ts 与 client.js
 npm run build
-npm test          # 102 个离线测试，不访问 Google
+npm test            # 先构建再运行 137 个离线测试，不访问 Google
+npm run verify      # typecheck + build + 全部离线测试
 ```
 
 测试覆盖：模型路由解析（wire 枚举与档位预算）、工具 schema 清洗、请求 envelope 与
 标签形状、SSE 解析、OAuth 流程、日志边界与脱敏、可用性与配额解析（含禁用模型
-过滤与缓存兜底）、并行同名工具调用，以及对本机假端点的端到端适配器流（文本/
-工具调用/401 刷新重放/404 诊断/429/上下文溢出/历史签名回放）。
+过滤与缓存兜底）、并发原子写盘、并行同名工具调用、四层架构单向依赖守卫、
+`client.js` 加载与 RPC 契约一致性，以及对本机假端点的端到端适配器流（文本/
+工具调用/401 刷新重放/404 诊断/429/503 容量退避/上下文溢出/历史签名回放）。
+更多开发规范与安全策略见 [CONTRIBUTING.md](CONTRIBUTING.md) 与 [SECURITY.md](SECURITY.md)。
 
 ### 发布流程
 
