@@ -56,6 +56,8 @@ export interface AdapterOptions {
   maxImageBytes?: number
   /** Diagnostic: append every outgoing envelope to this file. Never default. */
   dumpRequestsTo?: string
+  /** Test seam: override base delay for 503 capacity backoff. */
+  capacityRetryBaseDelayMs?: number
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -277,7 +279,8 @@ export class AntigravityGatewayAdapter extends LlmAdapter {
           reportsModelCapacity(errorText)
         ) {
           capacityAttempt += 1
-          const delay = Math.min(CAPACITY_RETRY_BASE_DELAY_MS * 2 ** (capacityAttempt - 1), CAPACITY_RETRY_MAX_DELAY_MS)
+          const base = this.options.capacityRetryBaseDelayMs ?? CAPACITY_RETRY_BASE_DELAY_MS
+          const delay = Math.min(base * 2 ** (capacityAttempt - 1), CAPACITY_RETRY_MAX_DELAY_MS)
           this.logger.info('request', 'model at capacity; backing off', { attempt: capacityAttempt, delayMs: delay })
           await sleep(delay, signal)
           continue

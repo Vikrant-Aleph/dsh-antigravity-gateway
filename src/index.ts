@@ -188,6 +188,7 @@ export function apply(
 
   if (typeof ctx.llm.registerModelDiscovery === 'function') {
     try {
+      const inputModalities = cfg.imageInput ? ['text', 'image'] : ['text']
       ctx.llm.registerModelDiscovery('dsh-antigravity-gateway', async (_request, signal) => {
         const definitions = await catalog.list(signal)
         return definitions.map((definition) => ({
@@ -195,7 +196,7 @@ export function apply(
           name: definition.name,
           contextWindow: definition.contextWindow,
           maxTokens: definition.routes['']?.maxOutputTokens ?? definition.routes[Object.keys(definition.routes)[0]!]!.maxOutputTokens,
-          inputModalities: ['text', 'image'],
+          inputModalities,
         }))
       })
     } catch (error) {

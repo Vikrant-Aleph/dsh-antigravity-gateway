@@ -160,6 +160,7 @@ test('apply wires adapter, providers, discovery, commands, tools, and disposes c
     assert.ok(host.registeredRoutes.has('/api/antigravity-gateway-logs/read'))
 
     // Wait briefly for the non-blocking initial auth.status() check to settle.
+    // Wait briefly for the non-blocking initial auth.status() check to settle.
     await new Promise((r) => setTimeout(r, 20))
     await host.disposeAll()
 
@@ -167,6 +168,33 @@ test('apply wires adapter, providers, discovery, commands, tools, and disposes c
     assert.equal(host.registeredCommands.size, 0)
     assert.equal(host.registeredTools.size, 0)
     assert.equal(host.registeredRoutes.size, 0)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('registerModelDiscovery reflects imageInput=false in inputModalities', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-index-img-'))
+  const credFile = path.join(dir, 'credential.json')
+  fs.writeFileSync(
+    credFile,
+    JSON.stringify({ refreshToken: '1//test', accessToken: 'ya29.valid', expiresAt: Date.now() + 3_600_000 }),
+  )
+  try {
+    const cfg = Config({
+      credentialFile: credFile,
+      endpoint: 'http://127.0.0.1:1',
+      fallbackEndpoints: [],
+      logDir: path.join(dir, 'logs'),
+      logLevel: 'off',
+      imageInput: false,
+    })
+    const host = createMockHostContext({ webServer: { host: '127.0.0.1' } })
+    apply(host.ctx, cfg)
+    const discovered = await host.registeredDiscovery[0].fn({})
+    assert.ok(discovered.length > 0)
+    assert.deepEqual(discovered[0].inputModalities, ['text'])
+    await host.disposeAll()
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }

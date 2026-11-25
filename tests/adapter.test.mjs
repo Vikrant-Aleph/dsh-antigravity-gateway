@@ -456,3 +456,167 @@ test('HTTP 404 on a plan-disabled model surfaces MODEL_UNSUPPORTED with upstream
     await cleanup()
   }
 })
+
+test('imageInput=false excludes image modality and skips attachment reads', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agb-noimg-'))
+  const file = path.join(dir, 'credential.json')
+  fs.writeFileSync(file, JSON.stringify({ refreshToken: '1//r', accessToken: 'ya29.i', expiresAt: Date.now() + 3_600_000 }))
+  let readCalls = 0
+  const server = await startServer(defaultHandler)
+  const store = new CredentialStore({ file })
+  const transport = new AgyTransport({ requestTimeoutMs: 5000 })
+  const auth = new AuthManager({ store, transport, logger: noopLogger, endpoints: [server.url] })
+  const catalog = new ModelCatalog(auth, transport, { ttlMs: 0, endpoints: [server.url], logger: noopLogger })
+  const adapter = new AntigravityGatewayAdapter({
+    providers: ['antigravity-gateway'],
+    auth,
+    catalog,
+    transport,
+    endpoints: [server.url],
+    logger: noopLogger,
+    imageInput: false,
+    getAttachments: () => ({
+      async readImage() {
+        readCalls += 1
+        return { data: new Uint8Array([1, 2]), ref: { mediaType: 'image/png' } }
+      },
+    }),
+  })
+  try {
+    const listed = await adapter.listModels('antigravity-gateway')
+    assert.deepEqual(listed[0].inputModalities, ['text'])
+    const resolved = await adapter.resolveModel('antigravity-gateway', 'claude-opus-4-6-thinking')
+    assert.deepEqual(resolved.inputModalities, ['text'])
+    await collect(adapter.stream({
+      provider: 'antigravity-gateway',
+      model: 'claude-opus-4-6-thinking',
+      messages: [{ role: 'user', content: [{ type: 'image', attachment: { id: 'img1' } }], id: 'u1', source: { kind: 'user' } }],
+    }))
+    assert.equal(readCalls, 0)
+    const sent = server.requests.find((r) => r.url.startsWith('/v1internal:streamGenerateContent')).body
+    assert.deepEqual(sent.request.contents[0].parts, [{ text: '[image unavailable to this route]' }])
+  } finally {
+    await server.close()
+    await transport.close()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('503 model-at-capacity retries up to 2 times and recovers without emitting duplicates', async () => {
+  let attempts = 0
+  const handler = (record, res) => {
+    if (record.url.startsWith('/v1internal:streamGenerateContent')) {
+      attempts += 1
+      if (attempts <= 2) {
+        res.writeHead(503, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Model is currently at capacity. Try again later.' } }))
+        return
+      }
+      res.writeHead(200, SSE_HEADERS)
+      res.end(sseBody(TEXT_EVENTS))
+      return
+    }
+    defaultHandler(record, res)
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agb-503-'))
+  const file = path.join(dir, 'credential.json')
+  fs.writeFileSync(file, JSON.stringify({ refreshToken: '1//r', accessToken: 'ya29.i', expiresAt: Date.now() + 3_600_000 }))
+  const store = new CredentialStore({ file })
+  const transport = new AgyTransport({ requestTimeoutMs: 5000 })
+  const server = await startServer(handler)
+  const auth = new AuthManager({ store, transport, logger: noopLogger, endpoints: [server.url] })
+  const catalog = new ModelCatalog(auth, transport, { ttlMs: 0, endpoints: [server.url], logger: noopLogger })
+  const adapter = new AntigravityGatewayAdapter({
+    providers: ['antigravity-gateway'],
+    auth,
+    catalog,
+    transport,
+    endpoints: [server.url],
+    logger: noopLogger,
+    capacityRetryBaseDelayMs: 5,
+  })
+  try {
+    const chunks = await collect(adapter.stream(userRequest('claude-opus-4-6-thinking')))
+    assert.equal(attempts, 3)
+    assert.equal(chunks.at(-1).reason.kind, 'stop')
+  } finally {
+    await server.close()
+    await transport.close()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('in-stream error event and empty response yield terminal error finishes', async () => {
+  let mode = 'stream-error'
+  const handler = (record, res) => {
+    if (record.url.startsWith('/v1internal:streamGenerateContent')) {
+      res.writeHead(200, SSE_HEADERS)
+      if (mode === 'stream-error') {
+        res.end(sseBody([{ error: { message: 'Request context length exceeded the limit', status: 400 } }]))
+      } else {
+        res.end('data: [DONE]\n\n')
+      }
+      return
+    }
+    defaultHandler(record, res)
+  }
+  const { adapter, cleanup } = await setup(handler)
+  try {
+    const errChunks = await collect(adapter.stream(userRequest('claude-opus-4-6-thinking')))
+    assert.equal(errChunks.at(-1).type, 'finish')
+    assert.equal(errChunks.at(-1).reason.kind, 'error')
+    assert.equal(errChunks.at(-1).reason.failure.code, 'CONTEXT_WINDOW_EXCEEDED')
+
+    mode = 'empty'
+    const emptyChunks = await collect(adapter.stream(userRequest('claude-opus-4-6-thinking')))
+    assert.equal(emptyChunks.at(-1).type, 'finish')
+    assert.equal(emptyChunks.at(-1).reason.kind, 'error')
+    assert.equal(emptyChunks.at(-1).reason.failure.code, 'EMPTY_RESPONSE')
+  } finally {
+    await cleanup()
+  }
+})
+
+test('multi-turn tool call + tool result + replayState preserves signatures and groups Claude responses', async () => {
+  let turn = 0
+  const handler = (record, res) => {
+    if (record.url.startsWith('/v1internal:streamGenerateContent')) {
+      turn += 1
+      res.writeHead(200, SSE_HEADERS)
+      res.end(sseBody(turn === 1 ? TOOL_EVENTS : TEXT_EVENTS))
+      return
+    }
+    defaultHandler(record, res)
+  }
+  const { adapter, server, cleanup } = await setup(handler)
+  try {
+    const first = await collect(adapter.stream(userRequest('claude-opus-4-6-thinking')))
+    const toolEnd = first.find((c) => c.type === 'block-end' && c.block.type === 'tool-call')
+    const replayState = first.at(-1).replayState
+    const second = await collect(adapter.stream({
+      provider: 'antigravity-gateway',
+      model: 'claude-opus-4-6-thinking',
+      sessionId: 'session-test',
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'read a.txt' }], id: 'u1', source: { kind: 'user' } },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'reasoning', text: 'thinking' },
+            { type: 'tool-call', id: toolEnd.block.id, name: toolEnd.block.name, arguments: toolEnd.block.arguments },
+          ],
+          id: 'a1',
+          source: { kind: 'model', provider: 'antigravity-gateway', model: 'claude-opus-4-6-thinking', replayState },
+        },
+        { role: 'tool', toolCallId: toolEnd.block.id, content: [{ type: 'text', text: 'file body' }], id: 't1', source: { kind: 'tool', callId: toolEnd.block.id } },
+      ],
+    }))
+    assert.equal(second.at(-1).reason.kind, 'stop')
+    const secondEnv = server.requests.filter((r) => r.url.startsWith('/v1internal:streamGenerateContent'))[1].body
+    assert.equal(secondEnv.request.contents[1].parts[0].thoughtSignature, 'sig-r')
+    assert.equal(secondEnv.request.contents[1].parts[1].thoughtSignature, 'sig-r')
+    assert.deepEqual(secondEnv.request.contents[2].parts[0].functionResponse, { name: 'read_file', response: { result: 'file body' } })
+  } finally {
+    await cleanup()
+  }
+})
