@@ -154,9 +154,8 @@ async function run(deps: CommandDeps, rawInput: string): Promise<{ kind: 'succes
           lines.push('', `Available models (${result.available.length}):`)
           for (const model of result.available) {
             const efforts = model.efforts.join('/')
-            const quota = model.remainingFraction !== undefined ? `  quota: ${Math.round(model.remainingFraction * 100)}%` : ''
             const tag = model.tagTitle ? `  [${model.tagTitle}]` : ''
-            lines.push(`  ${model.id}${efforts ? `  (efforts: ${efforts})` : ''}${quota}${tag}`)
+            lines.push(`  ${model.id}${efforts ? `  (efforts: ${efforts})` : ''}${tag}`)
           }
           if (result.unavailable.length > 0) {
             lines.push('', `Unavailable on this account (${result.unavailable.length}):`)

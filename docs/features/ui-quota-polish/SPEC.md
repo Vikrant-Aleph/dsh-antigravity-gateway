@@ -9,7 +9,7 @@
 2. **聊天框模型名称左侧额度样式对齐**：
    - 去除 `.agw-composer-chip` 的外框边框与常态背景底框；
    - 继承宿主模型名同款 UI 字体（`font-family: inherit`，去掉等宽字体），保持与 `ModelSelect.module.css` `.trigger` 一致的字号与行高（`font-size: 13px; line-height: 20px; height: 28px;`），字重设为 `600`（略粗于模型名的 `400`），在 28px 工具栏行内完全垂直居中对齐；
-   - 保留悬停/聚焦弹出 `document.body` 完整额度卡片功能。
+   - 保留悬停/聚焦弹出 `document.body` 完整额度卡片功能，且悬停浮层与 `/agw models` 命令均只按两大配额分类展示（不展示当前所选模型或单模型独立额度行）。
 
 ## 2. 验收标准
 - `npm run typecheck`（含 `tsconfig.client.json` `checkJs`）零错误；

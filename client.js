@@ -1032,8 +1032,6 @@
       };
 
       const groups = report && Array.isArray(report.quotaGroups) ? report.quotaGroups : [];
-      const available = report && Array.isArray(report.available) ? report.available : [];
-      const currentModelDetail = available.find((/** @type {any} */ m) => m && m.id === selection.model) || null;
       const activeAccount = report && report.activeAccount;
       const accountCount = report && typeof report.accountCount === 'number' ? report.accountCount : 0;
 
@@ -1051,16 +1049,6 @@
           activeAccount && (activeAccount.email || activeAccount.projectId)
             ? h('div', { className: 'agw-popover-sub' }, `${t('activeAccountLabel')}: ${activeAccount.email || activeAccount.projectId}`)
             : null,
-          currentModelDetail && typeof currentModelDetail.remainingFraction === 'number'
-            ? h('div', { className: 'agw-quota-bucket-wrap' },
-                h('div', { className: 'agw-quota-bucket' },
-                  h('span', null, `${t('quotaCurrentModel')}: ${currentModelDetail.name || selection.model}`),
-                  h('strong', null, `${Math.round(clampFraction(currentModelDetail.remainingFraction) * 100)}%`)),
-                h(ProgressBar, { fraction: currentModelDetail.remainingFraction, label: currentModelDetail.name || selection.model }),
-                currentModelDetail.resetTime
-                  ? h('span', { className: 'agw-quota-reset' }, `${t('quotaResets')} ${formatResetTime(currentModelDetail.resetTime, t)}`)
-                  : null)
-            : null,
           groups.length > 0
             ? groups.map((/** @type {any} */ g, /** @type {number} */ gi) => h('div', { key: gi, className: 'agw-quota-bucket-wrap' },
                 h('div', { className: 'agw-popover-sub', style: { fontWeight: 600 } }, g.displayName),
@@ -1073,7 +1061,7 @@
                     h(ProgressBar, { fraction: b.remainingFraction, label: `${g.displayName} ${b.displayName}` }),
                     resetStr ? h('span', { className: 'agw-quota-reset' }, `${t('quotaResets')} ${resetStr}`) : null);
                 })))
-            : (!currentModelDetail ? h('div', { className: 'agw-popover-sub' }, t('quotaNoData')) : null))
+            : h('div', { className: 'agw-popover-sub' }, t('quotaNoData')))
         : null;
 
       const portalTarget = typeof document !== 'undefined' ? document.body : null;

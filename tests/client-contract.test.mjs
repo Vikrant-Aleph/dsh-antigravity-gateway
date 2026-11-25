@@ -383,8 +383,10 @@ test('client.js renders quota progress bars in Models tab, multi-account control
   assert.match(popoverText, /a1@example\.com/)
   assert.match(popoverText, /87%/)
   assert.match(popoverText, /62%/)
+  assert.doesNotMatch(popoverText, /quotaCurrentModel/)
+  assert.doesNotMatch(popoverText, /Claude Sonnet 5\.5/)
   const bars = findElements(popovers[0], (n) => n.props?.role === 'progressbar')
-  assert.ok(bars.length >= 2)
+  assert.equal(bars.length, 2)
 
   // Non-owned provider model renders nothing (null).
   currentSelection = { provider: 'deepseek-account', model: 'deepseek-chat' }

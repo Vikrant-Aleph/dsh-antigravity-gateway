@@ -119,7 +119,9 @@ test('/agw commands handle status, login, cancel, logout, import, models, refres
   const modelsRes = await handler({ rawInput: 'models' })
   assert.equal(modelsRes.kind, 'success')
   assert.match(modelsRes.text, /Catalog source: cached/)
+  assert.match(modelsRes.text, /Quota:/)
   assert.match(modelsRes.text, /claude-sonnet-5-5/)
+  assert.doesNotMatch(modelsRes.text, /quota: 75%/)
   assert.match(modelsRes.text, /gemini-4-neon/)
 
   const refreshRes = await handler({ rawInput: 'refresh' })
