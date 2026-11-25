@@ -1,3 +1,4 @@
+// @ts-check
 // Antigravity Gateway Settings: account sign-in, model catalog, diagnostic log.
 // One settings.section contribution backed by the package's /api RPC routes.
 //
@@ -6,11 +7,28 @@
 //   1. apply() must NEVER throw: every step has its own try/catch.
 //   2. Every service access is optional-chained with a working fallback.
 //   3. A locale namespace is registered before it is bound.
-window.__ModuleLoader__.load({
+
+/**
+ * @typedef {{ call: (channel: string, method: string, payload?: Record<string, unknown>) => Promise<RpcResult> }} RpcClientLike
+ * @typedef {{ ok: boolean, value?: any, error?: { code?: string, message?: string } }} RpcResult
+ * @typedef {(key: string) => string} TranslateFn
+ * @typedef {{ rpc?: RpcClientLike | null, t?: TranslateFn }} PanelProps
+ * @typedef {{
+ *   locale?: { register?: (...args: any[]) => any, bind?: (ns: string) => TranslateFn },
+ *   get?: (name: string) => any,
+ *   connection?: { rpc?: RpcClientLike },
+ *   effect?: (fn: () => any) => void,
+ *   slots?: { inject?: (name: string, fn: () => any) => void, register?: (def: any, component: any) => any }
+ * }} ClientHostContext
+ */
+
+/** @type {{ __ModuleLoader__: { load: (mod: { id: string, factory: (require: (id: string) => any) => any }) => void } }} */
+(/** @type {unknown} */ (window)).__ModuleLoader__.load({
   // Must equal the package name (the browser artifact's registered id).
   id: 'dsh-antigravity-gateway',
-  factory(require) {
-    const React = require('react');
+  /** @param {(id: string) => any} loadModule */
+  factory(loadModule) {
+    const React = loadModule('react');
     const h = React.createElement;
     const { useState, useEffect, useCallback, useRef } = React;
 
@@ -19,6 +37,7 @@ window.__ModuleLoader__.load({
     const ACCOUNT_NS = 'antigravity-gateway-account';
     const LOG_NS = 'antigravity-gateway-logs';
 
+    /** @type {Record<string, string>} */
     const en = {
       nav: 'Antigravity Gateway',
       pageTitle: 'Antigravity Gateway',
@@ -87,6 +106,7 @@ window.__ModuleLoader__.load({
       dir: 'Directory',
       total: 'Total size',
     };
+    /** @type {Record<string, string>} */
     const zh = {
       nav: 'Antigravity Gateway',
       pageTitle: 'Antigravity Gateway',
@@ -156,6 +176,7 @@ window.__ModuleLoader__.load({
       total: '总大小',
     };
 
+    /** @type {TranslateFn} */
     const fallbackT = (key) => zh[key] || en[key] || key;
 
     const CSS = `
@@ -283,39 +304,58 @@ window.__ModuleLoader__.load({
       .agw-tabpanel { padding: 12px; background: var(--dsw-alias-bg-layer-1, #ffffff); border: none; border-radius: 0; }
     `;
 
+    const STYLE_ID = 'agw-styles';
+    let styleRefs = 0;
+
     function useStyles() {
       useEffect(() => {
         if (typeof document === 'undefined') return undefined;
         try {
-          const el = document.createElement('style');
-          el.textContent = CSS;
-          document.head.appendChild(el);
-          return () => { if (el.parentNode) el.parentNode.removeChild(el); };
+          styleRefs += 1;
+          let el = document.getElementById(STYLE_ID);
+          if (!el) {
+            el = document.createElement('style');
+            el.id = STYLE_ID;
+            el.textContent = CSS;
+            document.head.appendChild(el);
+          }
+          return () => {
+            styleRefs = Math.max(0, styleRefs - 1);
+            if (styleRefs === 0 && el && el.parentNode) el.parentNode.removeChild(el);
+          };
         } catch (e) { return undefined; }
       }, []);
     }
 
+    /**
+     * @param {RpcClientLike | null} rpc
+     * @param {string} ns
+     * @param {string} endpoint
+     * @param {Record<string, unknown>} [payload]
+     * @returns {Promise<RpcResult>}
+     */
     async function rpcCall(rpc, ns, endpoint, payload) {
       if (!rpc) return { ok: false, error: { message: 'offline' } };
       try {
         const result = await rpc.call(RPC_CHANNEL, `${ns}/${endpoint}`, payload || {});
         return result || { ok: false, error: { message: 'empty response' } };
-      } catch (e) {
+      } catch (/** @type {any} */ e) {
         return { ok: false, error: { message: String(e && e.message ? e.message : e) } };
       }
     }
 
+    /** @param {PanelProps} [props] */
     function AccountPanel(props) {
       const t = (props && props.t) || AccountPanel.t || fallbackT;
       const rpc = (props && props.rpc) || AccountPanel.rpc || null;
-      const [status, setStatus] = useState(null);
+      const [status, setStatus] = useState(/** @type {any} */ (null));
       const [busy, setBusy] = useState('');
       const [error, setError] = useState('');
       const [notice, setNotice] = useState('');
       const alive = useRef(true);
       useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
-      const load = useCallback(async (silent) => {
+      const load = useCallback(/** @param {boolean} [silent] */ async (silent) => {
         if (!silent) setBusy('status');
         if (!silent) setError('');
         const result = await rpcCall(rpc, ACCOUNT_NS, 'status', {});
@@ -342,7 +382,7 @@ window.__ModuleLoader__.load({
         return () => clearInterval(timer);
       }, [pending, load]);
 
-      const act = useCallback(async (endpoint, okKey) => {
+      const act = useCallback(/** @param {string} endpoint @param {string} [okKey] */ async (endpoint, okKey) => {
         setBusy(endpoint); setError(''); setNotice('');
         const result = await rpcCall(rpc, ACCOUNT_NS, endpoint, {});
         if (!alive.current) return;
@@ -398,16 +438,22 @@ window.__ModuleLoader__.load({
         h('p', { className: 'agw-note' }, t('riskNote')));
     }
 
+    /** @type {TranslateFn | undefined} */
+    AccountPanel.t = undefined;
+    /** @type {RpcClientLike | null | undefined} */
+    AccountPanel.rpc = undefined;
+
+    /** @param {PanelProps} [props] */
     function ModelsPanel(props) {
       const t = (props && props.t) || ModelsPanel.t || fallbackT;
       const rpc = (props && props.rpc) || ModelsPanel.rpc || null;
-      const [report, setReport] = useState(null);
+      const [report, setReport] = useState(/** @type {any} */ (null));
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState('');
       const alive = useRef(true);
       useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
-      const load = useCallback(async (force) => {
+      const load = useCallback(/** @param {boolean} [force] */ async (force) => {
         setBusy(true); setError('');
         const result = await rpcCall(rpc, ACCOUNT_NS, 'models', force ? { force: true } : {});
         if (!alive.current) return;
@@ -446,16 +492,16 @@ window.__ModuleLoader__.load({
         quotaGroups.length > 0 ? h('div', { className: 'agw-wrap' },
           h('h3', { className: 'agw-section-title' }, t('quotaTitle')),
           h('div', { className: 'agw-quota-grid' },
-            quotaGroups.map((group, idx) => h('div', { key: idx, className: 'agw-quota-card' },
+            quotaGroups.map((/** @type {any} */ group, /** @type {number} */ idx) => h('div', { key: idx, className: 'agw-quota-card' },
               h('p', { className: 'agw-quota-title' }, group.displayName),
-              (group.buckets || []).map((bucket, bi) => h('div', { key: bi, className: 'agw-quota-bucket' },
+              (group.buckets || []).map((/** @type {any} */ bucket, /** @type {number} */ bi) => h('div', { key: bi, className: 'agw-quota-bucket' },
                 h('span', null, bucket.displayName),
                 h('span', null, `${Math.round(bucket.remainingFraction * 100)}%${bucket.resetTime ? ` · ${t('quotaResets')} ${new Date(bucket.resetTime).toLocaleTimeString()}` : ''}`))))))) : null,
         report && available.length === 0 && unavailable.length === 0 ? h('p', { className: 'agw-note' }, t('modelsEmpty')) : null,
         available.length > 0 ? h('div', { className: 'agw-wrap' },
           h('h3', { className: 'agw-section-title' }, `${t('availableSection')} (${available.length})`),
           h('ul', { className: 'agw-model-list' },
-            available.map((model) => h('li', { key: model.id, className: 'agw-model-row' },
+            available.map((/** @type {any} */ model) => h('li', { key: model.id, className: 'agw-model-row' },
               h('div', { className: 'agw-model-top' },
                 h('span', { className: `agw-badge ${model.status === 'quota-exhausted' ? 'is-warn' : 'is-in'}` },
                   t(model.status === 'quota-exhausted' ? 'statusExhausted' : 'statusAvailable')),
@@ -469,7 +515,7 @@ window.__ModuleLoader__.load({
         unavailable.length > 0 ? h('div', { className: 'agw-wrap' },
           h('h3', { className: 'agw-section-title' }, `${t('unavailableSection')} (${unavailable.length})`),
           h('ul', { className: 'agw-model-list' },
-            unavailable.map((model) => h('li', { key: model.id, className: 'agw-model-row is-disabled' },
+            unavailable.map((/** @type {any} */ model) => h('li', { key: model.id, className: 'agw-model-row is-disabled' },
               h('div', { className: 'agw-model-top' },
                 h('span', { className: `agw-badge ${model.status === 'disabled' ? 'is-err' : 'is-out'}` },
                   t(model.status === 'disabled' ? 'statusDisabled' : 'statusNotOffered')),
@@ -480,6 +526,12 @@ window.__ModuleLoader__.load({
               model.reasonDetail ? h('p', { className: 'agw-model-reason' }, model.reasonDetail) : null)))) : null);
     }
 
+    /** @type {TranslateFn | undefined} */
+    ModelsPanel.t = undefined;
+    /** @type {RpcClientLike | null | undefined} */
+    ModelsPanel.rpc = undefined;
+
+    /** @param {string} line */
     function levelClass(line) {
       if (line.indexOf('[ERROR]') >= 0) return 'agw-error';
       if (line.indexOf('[WARN ') >= 0) return 'agw-warn';
@@ -487,12 +539,13 @@ window.__ModuleLoader__.load({
       return 'agw-info';
     }
 
+    /** @param {PanelProps} [props] */
     function LogPanel(props) {
       const t = (props && props.t) || LogPanel.t || fallbackT;
       const rpc = (props && props.rpc) || LogPanel.rpc || null;
       const [level, setLevel] = useState('info');
-      const [lines, setLines] = useState([]);
-      const [meta, setMeta] = useState(null);
+      const [lines, setLines] = useState(/** @type {string[]} */ ([]));
+      const [meta, setMeta] = useState(/** @type {any} */ (null));
       const [error, setError] = useState('');
       const [busy, setBusy] = useState(false);
       const [copied, setCopied] = useState('');
@@ -504,7 +557,8 @@ window.__ModuleLoader__.load({
         const result = await rpcCall(rpc, LOG_NS, 'read', { level, limit: 800 });
         if (!alive.current) return;
         if (!result.ok) {
-          setError((result.error && result.error.message) || t('unavailable'));
+          const code = result.error && result.error.code;
+          setError(code === 'loopback-required' ? t('loopbackRequired') : (result.error && result.error.message) || t('unavailable'));
         } else {
           const value = result.value || {};
           setLines(Array.isArray(value.lines) ? value.lines : []);
@@ -534,7 +588,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'agw-toolbar' },
           h('label', { htmlFor: 'agw-log-level' }, t('level')),
           h('span', { className: 'agw-select' },
-            h('select', { id: 'agw-log-level', value: level, onChange: (e) => setLevel(e.target.value) },
+            h('select', { id: 'agw-log-level', value: level, onChange: (/** @type {any} */ e) => setLevel(e.target.value) },
               ['debug', 'info', 'warn', 'error'].map((lv) => h('option', { key: lv, value: lv }, lv)))),
           h('button', { type: 'button', disabled: busy, onClick: () => void load() }, t('refresh')),
           h('button', { type: 'button', disabled: busy || lines.length === 0, onClick: () => void onCopy() }, copied || t('copy')),
@@ -543,9 +597,15 @@ window.__ModuleLoader__.load({
         meta ? h('p', { className: 'agw-note' }, `${t('dir')}: ${meta.dir} · ${t('total')}: ${meta.totalBytes} bytes`) : null,
         meta && meta.truncated ? h('p', { className: 'agw-note' }, t('truncatedNote')) : null,
         h('pre', { className: 'agw-log-body', 'aria-live': 'polite' },
-          lines.length === 0 ? t(busy ? 'loading' : 'empty') : lines.map((line, i) => h('span', { key: i, className: `agw-log-line ${levelClass(line)}` }, line))));
+          lines.length === 0 ? t(busy ? 'loading' : 'empty') : lines.map((/** @type {string} */ line, /** @type {number} */ i) => h('span', { key: i, className: `agw-log-line ${levelClass(line)}` }, line))));
     }
 
+    /** @type {TranslateFn | undefined} */
+    LogPanel.t = undefined;
+    /** @type {RpcClientLike | null | undefined} */
+    LogPanel.rpc = undefined;
+
+    /** @param {PanelProps} [props] */
     function GatewayPanel(props) {
       const t = (props && props.t) || GatewayPanel.t || fallbackT;
       const rpc = (props && props.rpc) || GatewayPanel.rpc || null;
@@ -576,14 +636,21 @@ window.__ModuleLoader__.load({
             tab === 'account' ? h(AccountPanel, { rpc, t }) : tab === 'models' ? h(ModelsPanel, { rpc, t }) : h(LogPanel, { rpc, t }))));
     }
 
+    /** @type {TranslateFn | undefined} */
+    GatewayPanel.t = undefined;
+    /** @type {RpcClientLike | null | undefined} */
+    GatewayPanel.rpc = undefined;
+
     return {
       // Only slots is a hard dependency; locale/connection degrade gracefully.
       inject: ['slots'],
+      /** @param {ClientHostContext} ctx */
       apply(ctx) {
         // 1. Locale — register the namespace BEFORE binding it.
         let t = fallbackT;
         try {
           if (ctx.locale && typeof ctx.locale.register === 'function') {
+            /** @type {(() => void) | null} */
             let dispose = null;
             try {
               dispose = ctx.locale.register(NS, { en, zh });
@@ -626,9 +693,11 @@ window.__ModuleLoader__.load({
         // 3. Slot registration — guarded: the settings slot may not be
         // declared yet at activation time. Never rethrow.
         try {
-          if (ctx.slots && typeof ctx.slots.inject === 'function' && typeof ctx.slots.register === 'function') {
-            ctx.slots.inject('settings.section', () =>
-              ctx.slots.register(
+          const slots = ctx.slots;
+          if (slots && typeof slots.inject === 'function' && typeof slots.register === 'function') {
+            const registerSlot = slots.register;
+            slots.inject('settings.section', () =>
+              registerSlot(
                 {
                   name: 'settings.section',
                   id: 'antigravity-gateway',

@@ -1,12 +1,12 @@
 # Refactoring Progress
 
 ## Current State
-- 当前阶段：Phase 3（稳定性、安全性、缺陷修复与 `client.js` 契约治理）
+- 当前阶段：Phase 4（工程化、CI/CD、GitHub 开源治理与配套文档）
 - 授权状态：方案已批准（用户于 2026-11-26 正式批准 `PLAN.md` 及 `D-001`~`D-006`，授权执行 Phase 2–5）
-- 当前任务：P3-004（`client.js` 治理与前后端契约测试）
+- 当前任务：P4-001（工具链与质量门禁统一）
 - 基准提交：`aedfa19f7bafd5f6a70c40a00c57b4f7fc5536f8`
 - 当前分支与 HEAD：`refactor/modular-architecture`
-- 最近更新时间：2026-11-26 01:52 +08:00
+- 最近更新时间：2026-11-26 02:02 +08:00
 
 ## Task List
 | ID | 任务 | 依赖 | 状态 | 验证证据 / 阻塞原因 |
@@ -27,8 +27,8 @@
 | P3-001 | P0 缺陷闭环（卸载取消登录、统一 RPC/完整 dispose/守卫、刷新取消解耦） | P2-006 | DONE | `npm run typecheck` (0) + `npm test`（126/126 pass，含 4 项 P0 回归测试） |
 | P3-002 | P1 缺陷闭环（Catalog 单飞与保序、Transport 有界池、SSE 中止挂起、原子写盘测试） | P3-001 | DONE | `npm run typecheck` (0) + `npm test`（129/129 pass，总耗时 ~412ms） |
 | P3-003 | P2 细节清理与流式/工具/签名/超时集成测试加固 | P3-002 | DONE | `npm run typecheck` (0) + `npm test`（134/134 pass） |
-| P3-004 | `client.js` 类型检查、样式去重、`LogPanel` 对齐与前后端契约测试 | P3-001 | IN_PROGRESS | 进行中 |
-| P4-001 | 工具链与质量门禁统一（`typecheck`、`test`、`.gitignore`/`files` 校验） | P3-004 | TODO | 等待 Phase 2/4 授权 |
+| P3-004 | `client.js` 类型检查、样式去重、`LogPanel` 对齐与前后端契约测试 | P3-001 | DONE | `npm run typecheck` (含 `typecheck:client`, 0) + `npm test`（137/137 pass） |
+| P4-001 | 工具链与质量门禁统一（`typecheck`、`test`、`.gitignore`/`files` 校验） | P3-004 | IN_PROGRESS | 进行中 |
 | P4-002 | CI/CD 工作流审查与加固（`ci.yml` / `release.yml`） | P4-001 | TODO | 等待 Phase 2/4 授权 |
 | P4-003 | GitHub 开源治理基建（`.editorconfig`、Templates、`CONTRIBUTING.md`、`SECURITY.md`） | P4-001 | TODO | 等待 Phase 2/4 授权 |
 | P4-004 | 按 `D-005` 同步更新项目文档与 3 类变更 Playbooks | P4-001 | TODO | 等待 Phase 2/4 授权 |
@@ -55,6 +55,7 @@
 - `P3-001`：修复 3 项 P0 缺陷——`apply()` 卸载调用 `auth.cancelLogin()` 释放回调端口、`registerLogAccess()` 启用 loopback 守卫并完整回收 fiber 与路由、`AuthManager.getCredential()` 解耦 caller `AbortSignal`；补充 4 项 P0 回归测试；`npm run typecheck` 与 `npm test`（126/126）通过。
 - `P3-002`：修复 4 项 P1 缺陷——`ModelCatalog.fetchLiveState` single-flight 与代数防过期写入、`definitionsForReport`/`offlineReport` 严格保留 `agentOrder` 顺序；`AgyTransport` 有界 `Map` 连接池与完整 `close()`；`iterateSse` 立即响应 `AbortSignal`（单测耗时从 5007ms 降至 25ms）；补充并发原子写盘零残留 `.tmp` 回归测试；`npm test`（129/129，412ms）通过。
 - `P3-003`：`registerModelDiscovery` 与 `adapter` 统一随 `imageInput` 收口 `inputModalities`；`dumpRequestsTo` 改异步 `appendFile`；补充 `imageInput: false`、503 容量退避恢复、流内错误/空响应、多轮工具+签名回放集成测试；`npm run typecheck` 与 `npm test`（134/134，548ms）通过。
+- `P3-004`：为 `client.js` 增加 `// @ts-check` + JSDoc（新增 `tsconfig.client.json` 与 `typecheck:client` 纳入 `npm run typecheck`）、`<style id="agw-styles">` 引用计数去重、`LogPanel` 对齐 `loopback-required` 提示，并新增 `tests/client-contract.test.mjs` 校验加载安全性与 `src/shared/rpc-contracts.ts` 100% 一致；`npm run typecheck` 与 `npm test`（137/137）通过。
 
 ## Work in Progress
 - `P1-003`：等待向用户汇报审计结论、目标架构、实施计划及 `D-001`~`D-006` 决策确认。

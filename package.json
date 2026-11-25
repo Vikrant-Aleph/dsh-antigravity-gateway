@@ -27,7 +27,9 @@
   ],
   "scripts": {
     "build": "node scripts/clean.mjs && tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:ts": "tsc -p tsconfig.json --noEmit",
+    "typecheck:client": "tsc -p tsconfig.client.json --noEmit",
+    "typecheck": "npm run typecheck:ts && npm run typecheck:client",
     "test:only": "node --test \"tests/*.test.mjs\"",
     "test": "npm run build && npm run test:only",
     "prepack": "npm run build",
