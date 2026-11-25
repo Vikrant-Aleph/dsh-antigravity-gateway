@@ -1,6 +1,6 @@
 # dsh-antigravity-gateway — Agent 开发与维护指南
 
-> **重构状态**：Phase 4 已完成，进入 Phase 5 最终验收与 `REPORT.md` 交付阶段（分支 `refactor/modular-architecture`）。过程文档索引：[PROGRESS.md](docs/refactoring/PROGRESS.md) · [PLAN.md](docs/refactoring/PLAN.md) · [DECISIONS.md](docs/refactoring/DECISIONS.md)。
+> 本项目已完成基于四层单向依赖的模块化重构（详见归档验收报告 [REPORT.md](docs/refactoring/REPORT.md)）。后续开发、修 Bug 与协议跟进请严格遵守以下常驻规范。
 
 ---
 

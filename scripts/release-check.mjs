@@ -65,8 +65,9 @@ if (archiveDir) {
       'package/CHANGELOG.md',
       'package/LICENSE',
     ]
+    const entries = new Set(listing.split(/\r?\n/).map((line) => line.trim()).filter(Boolean))
     for (const file of required) {
-      if (!listing.split('\n').includes(file)) failures.push(`archive is missing ${file}`)
+      if (!entries.has(file)) failures.push(`archive is missing ${file}`)
     }
     if (
       listing.includes('package/.npm-cache/') ||

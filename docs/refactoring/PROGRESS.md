@@ -1,12 +1,12 @@
 # Refactoring Progress
 
 ## Current State
-- 当前阶段：Phase 5（最终全量验收、兼容性核对与 `REPORT.md` 交付）
-- 授权状态：方案已批准（用户于 2026-11-26 正式批准 `PLAN.md` 及 `D-001`~`D-006`，授权执行 Phase 2–5）
-- 当前任务：P5-001（全量验证与本地打包干跑）
+- 当前阶段：Phase 5（全部完成）
+- 授权状态：方案已批准并已完成 Phase 0–5 全部可执行重构任务（等待维护者审阅合并及真实环境人工 E2E 核验）
+- 当前任务：已完成（[REPORT.md](REPORT.md) 已交付）
 - 基准提交：`aedfa19f7bafd5f6a70c40a00c57b4f7fc5536f8`
 - 当前分支与 HEAD：`refactor/modular-architecture`
-- 最近更新时间：2026-11-26 02:14 +08:00
+- 最近更新时间：2026-11-26 02:20 +08:00
 
 ## Task List
 | ID | 任务 | 依赖 | 状态 | 验证证据 / 阻塞原因 |
@@ -33,9 +33,9 @@
 | P4-003 | GitHub 开源治理基建（`.editorconfig`、Templates、`CONTRIBUTING.md`、`SECURITY.md`） | P4-001 | DONE | 已新增 `.editorconfig`、3 类 Issue 表单、PR 模板、`CONTRIBUTING.md`、`SECURITY.md` |
 | P4-004 | 按 `D-005` 同步更新项目文档与 3 类变更 Playbooks | P4-001 | DONE | 已更新 `TECHNICAL.md`、`TECHNICAL.us.md`、`README.md`、`README.us.md`（修复全部 `../` 链接、同步 137 测试与 3 类 Playbooks） |
 | P4-005 | 收敛根目录 `AGENTS.md` 为长期维护指南 | P4-004 | DONE | 已更新 `AGENTS.md` 为常驻维护指南（含四层职责、命令、变更落点与安全红线） |
-| P5-001 | 全量验证与本地打包干跑（`npm run pack:local` + `release-check.mjs`） | P4-005 | IN_PROGRESS | 进行中 |
-| P5-002 | 对照基线逐项核查功能、数据兼容与安全红线 | P5-001 | TODO | 等待 Phase 2/5 授权 |
-| P5-003 | 生成 `docs/refactoring/REPORT.md`、更新终态与人工 E2E 清单 | P5-002 | TODO | 等待 Phase 2/5 授权 |
+| P5-001 | 全量验证与本地打包干跑（`npm run pack:local` + `release-check.mjs`） | P4-005 | DONE | `npm run verify` (137/137 pass)、`pack:local` + `release-check.mjs --archive-dir .` (0；顺带修复 Windows `tar` CRLF 校验兼容) |
+| P5-002 | 对照基线逐项核查功能、数据兼容与安全红线 | P5-001 | DONE | 线缆协议、DSH 契约、凭据格式、`undici` 单依赖、loopback 守卫全部复核通过 |
+| P5-003 | 生成 `docs/refactoring/REPORT.md`、更新终态与人工 E2E 清单 | P5-002 | DONE | `REPORT.md`、`PROGRESS.md`、`AGENTS.md` 已落盘并收敛 |
 
 ## Completed Work
 - `P0-001`：核查 `git status`、`git branch -a`、`git log`、`git check-ignore`。工作区无任何已修改的 tracked 文件；`docs/refactoring/REQUIREMENTS.md` 为未跟踪需求基准；`.npm-cache/` 与 `lib/` 均正常被 `.gitignore` 忽略。
@@ -57,6 +57,7 @@
 - `P3-003`：`registerModelDiscovery` 与 `adapter` 统一随 `imageInput` 收口 `inputModalities`；`dumpRequestsTo` 改异步 `appendFile`；补充 `imageInput: false`、503 容量退避恢复、流内错误/空响应、多轮工具+签名回放集成测试；`npm run typecheck` 与 `npm test`（134/134，548ms）通过。
 - `P3-004`：为 `client.js` 增加 `// @ts-check` + JSDoc（新增 `tsconfig.client.json` 与 `typecheck:client` 纳入 `npm run typecheck`）、`<style id="agw-styles">` 引用计数去重、`LogPanel` 对齐 `loopback-required` 提示，并新增 `tests/client-contract.test.mjs` 校验加载安全性与 `src/shared/rpc-contracts.ts` 100% 一致；`npm run typecheck` 与 `npm test`（137/137）通过。
 - `P4-001`~`P4-005`：统一 `npm run verify` 门禁并将 `package.json#files` 的 `docs` 精确为 `docs/DETAIL.md`；加固 `ci.yml`/`release.yml` 与 `release-check.mjs`；新增 `.editorconfig`、Issue/PR 模板、`CONTRIBUTING.md`、`SECURITY.md`；按 `D-005` 同步 `TECHNICAL*.md`/`README*.md`（修复失效 `../` 链接、同步 137 测试与 3 类维护 Playbooks）并收敛 `AGENTS.md`。
+- `P5-001`~`P5-003`：全量运行 `npm run verify`（137/137 pass）、`npm run pack:local` 与 `release-check.mjs --tag v0.1.0 --archive-dir .`（顺带修复 Windows `tar` CRLF 行尾导致 `split('\n')` 误报的问题，已清理临时 `.tgz`）；完成基线兼容与安全红线核查，交付 `docs/refactoring/REPORT.md` 并收敛 `AGENTS.md` 为常驻开发指南。
 
 ## Work in Progress
 - `P1-003`：等待向用户汇报审计结论、目标架构、实施计划及 `D-001`~`D-006` 决策确认。
@@ -83,9 +84,9 @@
 - `D-006`：`iterateSse` 在流挂起时忽略 `AbortSignal` 缺陷修复
 
 ## Next Actions
-1. 等待用户确认 `docs/refactoring/PLAN.md` 与 `docs/refactoring/DECISIONS.md`（`D-001`~`D-006`）。
-2. 获得批准后：按要求建议新建独立重构分支（如 `refactor/modular-architecture`），启动 `P2-001`（测试脚本修复与 0 覆盖模块特征测试）。
+1. 由维护者在真实 DSH Desktop 环境中执行 [REPORT.md §6.2](REPORT.md) 列出的 6 项人工 E2E 核验。
+2. 人工核验无误后，再决定合并 `refactor/modular-architecture` 至 `main`。
 
 ## Handoff Notes
-- 当前未提交变更仅包含新增的 `AGENTS.md` 与 `docs/refactoring/{PROGRESS,DECISIONS,AUDIT,PLAN}.md`（以及用户原有的 `docs/refactoring/REQUIREMENTS.md`）；`src/`、`tests/`、`client.js`、`package.json` 等源码与配置文件**一字未动**。
-- `.npm-cache/` 存在于工作区根目录，已被 `.gitignore` 忽略且未进入 Git 索引，请勿误删或提交。
+- `refactor/modular-architecture` 工作树干净，未改动 `main` 分支（`aedfa19`），未提升版本号，未执行任何远程推送或发布操作。
+- `.npm-cache/` 存在于工作区根目录，已被 `.gitignore` 忽略且未进入 Git 索引与 `.tgz` 打包产物。
