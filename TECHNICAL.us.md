@@ -63,19 +63,19 @@ Modules:
 | **Protocol** | [schema-sanitizer.ts](src/protocol/schema-sanitizer.ts) | Tool-parameter JSON Schema whitelist projection & empty-schema placeholder (§4.3) |
 | **Protocol** | [payload.ts](src/protocol/payload.ts) | Envelope, field order, message/tool mapping, Claude transforms, signature replay (§4) |
 | **Protocol** | [response.ts](src/protocol/response.ts) | SSE event parsing, usage, finishReason, signature extraction (§5) |
-| **Protocol** | [catalog-parser.ts](src/protocol/catalog-parser.ts) | Pure parsers for `fetchAvailableModels`, quota summary, tier metadata, and reports (§3.2) |
+| **Protocol** | [catalog-parser.ts](src/protocol/catalog-parser.ts) | Pure parsers for `fetchAvailableModels`, quota summary, tier metadata, `selectQuotaForModel`, and `accountCacheKey` (§3.2) |
 | **Core** | [transport/](src/core/transport/index.ts) | Env/Windows proxy (`proxy.ts`), bounded `Dispatcher` pool (`http-client.ts`), abort-responsive SSE (`sse.ts`) |
-| **Core** | [credentials.ts](src/core/credentials.ts) | DSH credential record first, owner-only atomic file mirror & late-mount migration (§8) |
-| **Core** | [oauth.ts](src/core/oauth.ts) | PKCE S256, loopback callback server, token exchange/refresh (§8) |
-| **Core** | [auth.ts](src/core/auth.ts) | Login orchestration, decoupled single-flight refresh, project discovery, explicit import (§8) |
-| **Core** | [catalog.ts](src/core/catalog.ts) | Per-account live catalog: single-flight probe, TTL, order-preserving cache & fallback (§3.2) |
+| **Core** | [credentials.ts](src/core/credentials.ts) | Multi-account `CredentialVault` (v1 backward-compatible), `withWriteLock` atomic mirror & shared project ID isolation (§8) |
+| **Core** | [oauth.ts](src/core/oauth.ts) | PKCE S256, loopback callback server, token exchange/refresh & `id_token` email extraction (§8) |
+| **Core** | [auth.ts](src/core/auth.ts) | Multi-account login orchestration, per-account single-flight refresh & generation guards, account switching, project discovery, explicit import (§8) |
+| **Core** | [catalog.ts](src/core/catalog.ts) | Per-account live catalog (v2 `catalog-cache.json`), quota cooldowns & failover candidate selection (§3.2) |
 | **Core** | [logger.ts](src/core/logger.ts) | Bounded redacted log + in-memory ring fallback (§9) |
 | **DSH** | [types.ts](src/dsh/types.ts), [config.ts](src/dsh/config.ts) | Host structural interfaces; Schemastery `Config` single source of truth deriving `GatewayConfig` |
 | **DSH** | [rpc.ts](src/dsh/rpc.ts) | Unified `/api` JSON-RPC registrar, validation, loopback guard & full fiber/route disposal |
 | **DSH** | [stream-assembler.ts](src/dsh/stream-assembler.ts), [adapter.ts](src/dsh/adapter.ts) | DSH `LlmAdapter` implementation, chunk state machine, retries & error mapping (§7) |
 | **DSH** | [account-service.ts](src/dsh/account-service.ts), [log-service.ts](src/dsh/log-service.ts) | Single-implementation account & log services (UI RPC + `/agw` commands / `antigravity_gateway_log` tool) |
 | **DSH** | [commands.ts](src/dsh/commands.ts), [prompt-compat.ts](src/dsh/prompt-compat.ts) | `/agw` command family (§6.2) and 429 identity-sentence rewrite hook (§4.4) |
-| **Client/Entry** | [client.js](client.js), [index.ts](src/index.ts) | Zero-bundler settings module (`tsconfig.client.json`-checked, §6.3) & thin wiring entrypoint |
+| **Client/Entry** | [client.js](client.js), [index.ts](src/index.ts) | Zero-bundler settings & composer `conversation.input.right` quota module (`tsconfig.client.json`-checked, §6.3) & thin wiring entrypoint |
 
 Terms: **wire route** = the model name the endpoint accepts; **enum** = the
 `MODEL_PLACEHOLDER_M…` value in `labels.model_enum`; **pinned snapshot** =
@@ -198,15 +198,23 @@ project; one `{}` retry on 403 with a project). The response carries a
   `not-offered` for ids absent from the catalog).
 - Disk cache and offline fallback: after a successful probe the non-secret
   availability result is written to `catalog-cache.json` beside the
-  credential file (isolated per `accountKey`, contains no tokens). When a
-  live probe fails (e.g. offline at boot) the catalog first falls back to
-  that account's last verified cached offering — disabled or not-offered
-  models never leak into the picker that way; the full pinned snapshot is
-  used only when no live probe has ever succeeded for the account.
+  credential file (v2 multi-account map with v1 read compatibility; isolated
+  per `accountCacheKey` ordered `email → id → projectId`, containing no
+  tokens). When a live probe fails (e.g. offline at boot) the catalog first
+  falls back to that account's last verified cached offering — disabled or
+  not-offered models never leak into the picker that way; the full pinned
+  snapshot is used only when no live probe has ever succeeded for the account.
+- Quota cooldowns and failover candidate selection: `ModelCatalog` tracks
+  `(accountKey, modelId)` runtime cooldowns alongside cached `resetTime`
+  expiry. `selectBestAccountForModel()` skips already-tried, cooled-down, or
+  explicitly `disabled` accounts and prefers the backup account with the
+  highest remaining quota; expired `resetTime` entries automatically recover.
 - TTL default 30s (`refresh` / the settings "Check availability" button pass
-  `force: true` to skip it); logout/import invalidate the in-memory and disk
-  caches. Catalog changes notify DSH's model directory through
-  `registration.replace(providers)` and `llm/models-updated`.
+  `force: true` to skip it); logout/re-login/import invalidate only the target
+  account's `accountKey` (preserving other accounts' verified caches).
+  Account switches and catalog changes notify DSH's model directory and UI
+  via `onActiveAccountChanged()` → `registration.replace(providers)` and
+  `llm/models-updated`.
 
 The server returns different catalogs per account (plan, region, rollout);
 the plugin no longer applies one fixed list to everyone.
@@ -342,6 +350,7 @@ history degrades to the sentinel automatically.
 | catalogTtlMs | 30000 | live catalog cache |
 | extraModels | [] | pinned ids always advertised |
 | promptCompatibility | true | §4.4 |
+| autoSwitchAccount | true | auto-switch account on quota exhaustion keeping selected model |
 | imageInput | true | image input |
 | maxImageBytes | 10MiB | per-image cap |
 | proxyUrl | '' | explicit proxy |
@@ -352,15 +361,20 @@ history degrades to the sentinel automatically.
 
 ### 6.2 Commands
 
-`/agw` (alias `/antigravity-gateway`): status/login/cancel/logout/import/
-models/refresh. Commands create no model message; login completes in the
-background while the command returns the URL and instructions immediately.
-import reads only dsh-antigravity-auth's auth.json (Windows
+`/agw` (alias `/antigravity-gateway`): `status` / `accounts` / `switch <target>`
+/ `login` / `cancel` / `logout [all]` / `import` / `models` / `refresh`.
+Commands create no model message; `accounts` lists all signed-in accounts with
+active indicator, `switch` accepts 1-based index, email, or account id, and
+`logout` removes the active account (promoting the next available one) or all
+accounts with `logout all`. Login completes in the background while the command
+returns the URL and instructions immediately. `import` reads only
+dsh-antigravity-auth's `auth.json` (Windows
 `%LOCALAPPDATA%/dsh-antigravity-auth/auth.json`, POSIX
-`$XDG_DATA_HOME/dsh-antigravity-auth/auth.json`), takes refreshToken +
-projectId, refreshes on its own, and never writes the sibling store.
+`$XDG_DATA_HOME/dsh-antigravity-auth/auth.json`), takes `refreshToken` +
+`projectId`, refreshes on its own, appends/activates in the vault, and never
+writes the sibling store.
 
-### 6.3 Settings page and account RPC
+### 6.3 Settings page, composer quota indicator, and account RPC
 
 The client half `client.js` registers through `window.__ModuleLoader__.load`
 (id = package name); React comes from the host browser module table, no
@@ -370,17 +384,31 @@ falling back to the built-in dictionary on failure); the RPC client comes
 from `connection.rpc`; one page registers into the `settings.section` slot
 (id `antigravity-gateway`, order 31) with three tabs:
 
-- **Account**: status card (login state/email/project/token expiry/storage
-  backend), sign-in/cancel/import/logout buttons; while a sign-in is pending
-  it polls status every 2s so the card flips automatically when the browser
-  callback completes; the pending box shows the authorization link (manual
-  fallback).
+- **Account**: top action bar, active account spotlight card (avatar, email,
+  project, tier, token expiry, storage backend), and signed-in accounts
+  roster (add/import additional accounts, switch active, remove individual,
+  and show `autoSwitchAccount` status); while a sign-in is pending it polls
+  status every 2s so the card flips automatically when the browser callback
+  completes; the pending box shows the authorization link (manual fallback).
 - **Models**: a one-click "Check availability" probe (`force: true`) showing
-  the report source (live / cached / unverified snapshot), account tier,
-  quota summary (5-hour and weekly windows), and the account's available
-  models (with remaining quota) alongside unavailable ones (upstream
-  disabled/not-offered reasons).
+  the report source (live / cached / unverified snapshot), active account and
+  tier, two-pool quota cards (bold `5h` / `weekly` labels, prominent
+  percentages, full-width 5px progress bars, reset countdowns), streamlined
+  available model cards, and collapsible unavailable models.
 - **Diagnostic log**: level filter, refresh, copy, clear (reuses the log RPC).
+
+In addition, an isolated soft-inject `ctx.inject(['slots', 'modelDirectories'], ...)`
+registers `ComposerQuotaBadge` into `conversation.input.right` (`order: 10`,
+immediately to the left of the model selector):
+- Renders borderless aligned text (`5h | 87%`, falling back to `quota | XX%`
+  when no 5h group applies) only while an owned provider model is selected;
+  polls every 60s, reacts to `llm/models-updated`, supports click-to-force-refresh,
+  and clears stale state to `5h | --` immediately on full logout or `AUTH`
+  failure.
+- Hovering or focusing opens a `ReactDOM.createPortal(..., document.body)`
+  popover displaying the active account and both quota pool groups (`5h` /
+  `weekly` bars and reset countdowns), dismissible with mouse-out, blur, or
+  `Escape`.
 
 Every service access is optional-chained and try/caught; `apply` never
 throws (a failed activation is a fatal web-boot error). Styles use host
@@ -388,7 +416,7 @@ theme tokens and are removed on unmount.
 
 On the Host, `AccountService` is the single implementation shared by
 commands and UI; RPC routes
-`/api/antigravity-gateway-account/{status,login,cancel,logout,import,models}`
+`/api/antigravity-gateway-account/{status,login,cancel,logout,import,models,switch}`
 reuse the log RPC envelope protocol. **Loopback guard** (same policy as
 dsh-antigravity-auth): enabled when no WebServer exists (local-only
 composition) or it is explicitly bound to `127.0.0.1`; on any other bind the
@@ -406,7 +434,7 @@ port), keeping browser, Google, and the token exchange in agreement.
 |---|---|---|
 | Not signed in | AUTH | hint /agw login or /agw import |
 | 401/403 (nothing emitted yet) | AUTH | force one refresh and replay; then surface |
-| 429 | RATE_LIMIT | Retry-After parsed (seconds/HTTP-date, capped 1h) carried on the failure |
+| 429 / pre-flight exhausted / pre-emit stream 429 | RATE_LIMIT | When `autoSwitchAccount` is true and nothing was emitted yet, cools down current account and CAS-switches to the best eligible backup account keeping `model` and `reasoningEffort`; once all accounts are exhausted, parses Retry-After (seconds/HTTP-date, capped 1h) and surfaces `RATE_LIMIT` |
 | 400 + overflow wording | CONTEXT_WINDOW_EXCEEDED | triggers DSH compaction path |
 | 503 + capacity wording | SERVER | backoff retry ≤2 (1.5s/3s, cap 8s) while nothing emitted |
 | 404 (plan-locked model) | MODEL_UNSUPPORTED | probes/refreshes live availability and surfaces the upstream reason |
@@ -424,16 +452,28 @@ CANCELLED→ABORTED; the rest pass through unchanged.
 
 ## 8. Credentials and security
 
-- Tokens live in the DSH credential record
-  `dsh-antigravity-gateway/google-account` (kind: grant) **and always mirror
-  to an owner-only (0600) JSON file** (atomic tmp+rename writes). The
-  credentials service resolves lazily per operation (activation order does
+- Backward-compatible multi-account storage: tokens live in the DSH credential
+  record `dsh-antigravity-gateway/google-account` (kind: grant) **and always
+  mirror to an owner-only (0600) JSON file** (atomic tmp+rename writes). All
+  writes serialize through `withWriteLock`: 1 account writes the legacy v1
+  object shape; ≥2 accounts upgrade atomically to v2 `CredentialVault`
+  (`{ version: 2, activeAccountId, accounts }`). `switchAccountIfCurrent()`
+  provides CAS switching so parallel requests never double-skip healthy backups.
+- Identity deduplication and shared project isolation: distinct accounts sharing
+  consumer project IDs (`aicode-consumers`, `inductive-dreamer-qrkws`) are
+  never merged when `email` differs (or `refreshToken` differs without email);
+  `oauth.ts` extracts `email` from Google's `id_token` JWT as a zero-network
+  fallback when `/userinfo` is unavailable.
+- The credentials service resolves lazily per operation (activation order does
   not matter); when the service exists but holds no record, the file mirror
   is read and migrated into the service. Every Host boot finds the grant
   whether or not the credentials service is ready, so restarts never lose
   the sign-in.
-- Single-flight refresh: concurrent requests share one refresh promise;
-  Google-rotated refresh tokens persist immediately. Refresh 60s early.
+- Per-account single-flight refresh & generation guards: concurrent requests
+  share one refresh promise per `accountId`; Google-rotated refresh tokens
+  persist immediately; refresh runs 60s early. `accountGenerations` isolates
+  invalidation to logout/re-auth of that specific account so `switchAccount`
+  never aborts concurrent refreshes on other accounts.
 - The PKCE verifier stays in Host memory (state→verifier map), so the
   authorization URL is safe to display. The callback server binds 127.0.0.1
   only; a wrong state rejects that request without killing the pending
@@ -464,10 +504,10 @@ Dual access: the `antigravity_gateway_log` tool and
 ## 10. Testing, releases, playbooks, and troubleshooting
 
 Offline verification (`npm run verify`: `typecheck:ts` + `typecheck:client` +
-`build` + 153 `node:test` cases) never calls Google:
+`build` + 155 `node:test` cases) never calls Google:
 - **Unit & protocol layers**: models/payload/schema/response/catalog-parser/transport/proxy/logger/atomic-writes/commands/prompt-compat.
 - **Architecture & contract guards**: [architecture.test.mjs](tests/architecture.test.mjs) enforces the four-layer unidirectional boundaries and cycle freedom; [client-contract.test.mjs](tests/client-contract.test.mjs) verifies `client.js` load safety, `#agw-styles` deduplication, and 100% alignment with `rpc-contracts.ts`.
-- **End-to-end integration (local fake server)**: text, parallel same-name tool calls, 401 refresh replay, 404 disabled-reason diagnosis, 429, 503 capacity backoff recovery, in-stream error/empty response, multi-turn thinking-signature replay, and plugin unload releasing the OAuth callback port & RPC routes.
+- **End-to-end integration (local fake server)**: text, parallel same-name tool calls, 401 refresh replay, 404 disabled-reason diagnosis, 429 / pre-flight / in-stream 429 auto-failover with concurrent CAS, 503 capacity backoff recovery, in-stream error/empty response, multi-turn thinking-signature replay, and plugin unload releasing the OAuth callback port & RPC routes.
 
 CI: Node 22/24 × Ubuntu/Windows matrix running `typecheck`, `build`, `test:only`, archive validation, and clean-tree check.
 Release: push a `v*` tag → identity validation → full verify → pack validation (rejecting `.npm-cache/`, `node_modules/`, `docs/refactoring/`) → SHA256 → GitHub Release.

@@ -59,19 +59,19 @@ https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=s
 | **协议** | [schema-sanitizer.ts](src/protocol/schema-sanitizer.ts) | 工具参数 JSON Schema 白名单清洗与空 schema 占位（§4.3） |
 | **协议** | [payload.ts](src/protocol/payload.ts) | envelope、字段序、消息/工具映射、Claude 变换、签名回放（§4） |
 | **协议** | [response.ts](src/protocol/response.ts) | SSE 事件解析、usage、finishReason、签名提取（§5） |
-| **协议** | [catalog-parser.ts](src/protocol/catalog-parser.ts) | `fetchAvailableModels`/配额/账号等级纯解析与有序报告构造（§3.2） |
+| **协议** | [catalog-parser.ts](src/protocol/catalog-parser.ts) | `fetchAvailableModels`/配额/账号等级纯解析、`selectQuotaForModel` 与 `accountCacheKey`（§3.2） |
 | **核心** | [transport/](src/core/transport/index.ts) | 环境变量/Windows 系统代理（`proxy.ts`）、有界 `Dispatcher` 池（`http-client.ts`）、即时中止 SSE 迭代（`sse.ts`） |
-| **核心** | [credentials.ts](src/core/credentials.ts) | DSH 凭据记录优先，owner-only 原子写文件镜像与晚挂载迁移（§8） |
-| **核心** | [oauth.ts](src/core/oauth.ts) | PKCE S256、环回回调服务器、令牌交换/刷新（§8） |
-| **核心** | [auth.ts](src/core/auth.ts) | 登录编排、信号解耦单飞刷新、项目发现、显式导入（§8） |
-| **核心** | [catalog.ts](src/core/catalog.ts) | 账号实时目录：single-flight 探测、TTL、保序缓存与离线兜底（§3.2） |
+| **核心** | [credentials.ts](src/core/credentials.ts) | 多账号 `CredentialVault`（单账号向后兼容 v1）、`withWriteLock` 原子镜像与共享项目 ID 隔离（§8） |
+| **核心** | [oauth.ts](src/core/oauth.ts) | PKCE S256、环回回调服务器、令牌交换/刷新与 `id_token` 邮箱解析（§8） |
+| **核心** | [auth.ts](src/core/auth.ts) | 多账号登录编排、按账号隔离的单飞刷新/代数守卫、账号切换、项目发现、显式导入（§8） |
+| **核心** | [catalog.ts](src/core/catalog.ts) | 按账号隔离实时目录（v2 `catalog-cache.json`）、配额冷却与故障转移选号（§3.2） |
 | **核心** | [logger.ts](src/core/logger.ts) | 有界脱敏文件日志 + 内存环回退（§9） |
 | **宿主** | [types.ts](src/dsh/types.ts)、[config.ts](src/dsh/config.ts) | 宿主轻量结构接口；Schemastery `Config` 单一真相源推导 `GatewayConfig` |
 | **宿主** | [rpc.ts](src/dsh/rpc.ts) | 统一 `/api` JSON-RPC 注册、校验、loopback 守卫与完整 fiber/路由释放 |
 | **宿主** | [stream-assembler.ts](src/dsh/stream-assembler.ts)、[adapter.ts](src/dsh/adapter.ts) | DSH `LlmAdapter` 实现、流式块状态机、重试与错误映射（§7） |
 | **宿主** | [account-service.ts](src/dsh/account-service.ts)、[log-service.ts](src/dsh/log-service.ts) | 账号与日志双入口服务（UI RPC + `/agw` 命令 / `antigravity_gateway_log` 工具） |
 | **宿主** | [commands.ts](src/dsh/commands.ts)、[prompt-compat.ts](src/dsh/prompt-compat.ts) | `/agw` 命令族（§6.2）与 429 身份句改写钩子（§4.4） |
-| **前端/入口** | [client.js](client.js)、[index.ts](src/index.ts) | 零打包器设置页模块（`tsconfig.client.json` 检查，§6.3）与薄装配入口 |
+| **前端/入口** | [client.js](client.js)、[index.ts](src/index.ts) | 零打包器设置页与聊天框 `conversation.input.right` 额度模块（`tsconfig.client.json` 检查，§6.3）与薄装配入口 |
 
 术语：**wire 路由**＝端点实际接受的模型名；**枚举**＝`labels.model_enum`
 里的 `MODEL_PLACEHOLDER_M…`；**固定快照**＝插件内置的模型定义表；
@@ -181,13 +181,19 @@ gpt- 家族除外）都归一到固定 id + 努力级。
   可用列表与不可用列表（`disabled` 附上游原因、`not-offered` 标未提供）
   的完整可用性报告。
 - 磁盘缓存与离线兜底：成功获取后把非敏感可用结果写入凭据同目录下的
-  `catalog-cache.json`（按 `accountKey` 隔离，不含任何令牌）。实时探测失败
-  （如启动初期断网）优先回退到该账号上次已验证的缓存目录，避免把禁用或
-  未提供模型放进选择器；仅在该账号从未成功拉取过实时目录时才回退完整
-  固定快照。
-- TTL 默认 30s（`refresh` /「重新检测」传 `force: true` 跳过缓存）；登出/
-  导入时连同磁盘缓存一并清空。目录变化通过 `registration.replace(providers)`
-  和 `llm/models-updated` 通知 DSH 模型目录。
+  `catalog-cache.json`（v2 多账号映射，兼容读取 v1 单账号格式；按
+  `accountCacheKey` 优先级 `email → id → projectId` 隔离，不含任何令牌）。
+  实时探测失败（如启动初期断网）优先回退到该账号上次已验证的缓存目录，避免
+  把禁用或未提供模型放进选择器；仅在该账号从未成功拉取过实时目录时才回退
+  完整固定快照。
+- 配额冷却与自动切号候选选择：`ModelCatalog` 维护按 `(accountKey, modelId)`
+  隔离的运行时冷却时间与缓存 `resetTime` 校验，`selectBestAccountForModel()`
+  在切号时跳过已尝试、已冷却或明确计划不可用（`disabled`）的账号，并优先选择
+  已知余量更高的备用账号；已过 `resetTime` 的账号自动恢复可用状态。
+- TTL 默认 30s（`refresh` /「重新检测」传 `force: true` 跳过缓存）；仅当某账号
+  登出/重新登录或导入时按该账号 `accountKey` 失效缓存（不连坐其余账号），切号
+  或目录变化通过 `onActiveAccountChanged()` → `registration.replace(providers)`
+  和 `llm/models-updated` 即时通知 DSH 模型目录与前端。
 
 服务器按账号（计划、区域、rollout）返回不同目录；插件不再用单一固定
 名单套所有账号。
@@ -311,6 +317,7 @@ Claude 的 functionCall 只给第一个带签名（CLI 行为）。replayState �
 | catalogTtlMs | 30000 | 实时目录缓存 |
 | extraModels | [] | 强制展示的固定 id |
 | promptCompatibility | true | §4.4 |
+| autoSwitchAccount | true | 额度耗尽时自动切号并保留原所选模型 |
 | imageInput | true | 图片输入 |
 | maxImageBytes | 10MiB | 单图上限 |
 | proxyUrl | '' | 显式代理 |
@@ -321,14 +328,17 @@ Claude 的 functionCall 只给第一个带签名（CLI 行为）。replayState �
 
 ### 6.2 命令
 
-`/agw`（别名 `/antigravity-gateway`）：status/login/cancel/logout/import/
-models/refresh。命令不产生模型消息；登录在后台完成，命令立即返回
-URL 与指引。import 只读 dsh-antigravity-auth 的 auth.json
-（Windows `%LOCALAPPDATA%/dsh-antigravity-auth/auth.json`，POSIX
-`$XDG_DATA_HOME/dsh-antigravity-auth/auth.json`），取 refreshToken +
-projectId 后自行刷新，不写对方存储。
+`/agw`（别名 `/antigravity-gateway`）：`status` / `accounts` / `switch <目标>` /
+`login` / `cancel` / `logout [all]` / `import` / `models` / `refresh`。
+命令不产生模型消息；`accounts` 列出全部已登录账号及激活标记，`switch` 支持按
+1-based 序号、邮箱或 ID 切换当前账号，`logout` 默认移除当前账号并自动递补
+下一可用账号，加 `all` 则清空全部凭据。登录在后台完成，命令立即返回 URL 与指引。
+`import` 只读 dsh-antigravity-auth 的 `auth.json`（Windows
+`%LOCALAPPDATA%/dsh-antigravity-auth/auth.json`，POSIX
+`$XDG_DATA_HOME/dsh-antigravity-auth/auth.json`），取 `refreshToken` +
+`projectId` 后自行刷新追加到多账号列表并激活，不写对方存储。
 
-### 6.3 设置页与账号 RPC
+### 6.3 设置页、聊天框额度指示器与账号 RPC
 
 客户端半块 `client.js` 经 `window.__ModuleLoader__.load` 注册（id = 包名），
 React 来自宿主浏览器模块表，不重复安装。`apply` 内：locale 先注册
@@ -336,24 +346,34 @@ React 来自宿主浏览器模块表，不重复安装。`apply` 内：locale �
 字典）；从 `connection.rpc` 取 RPC 客户端；向 `settings.section` slot 注册
 一个页面（id `antigravity-gateway`，order 31），三个 tab：
 
-- **账号**：状态卡片（登录态/邮箱/项目/计划等级/令牌过期/存储后端），
-  登录/取消/导入/退出按钮；登录待决时每 2s 轮询 status，浏览器回调完成后
-  卡片自动翻转；待决期展示授权链接（手动打开兜底）。
+- **账号**：顶部操作栏、当前激活账号焦点卡（头像/邮箱/项目/等级/令牌过期/
+  存储后端）与已登录账号列表（支持随时追加登录、切换当前账号与单独移除，并
+  显示 `autoSwitchAccount` 状态）；登录待决时每 2s 轮询 status，浏览器回调
+  完成后卡片自动翻转；待决期展示授权链接（手动打开兜底）。
 - **模型**：一键「重新检测」（`force: true`），显示探测来源（实时检测/缓存
-  快照/未验证快照）、账号等级、配额摘要（5 小时与每周窗口），以及当前
-  账号的可用模型（含剩余配额）与不可用模型（含上游锁定/未提供原因）。
+  快照/未验证快照）、当前账号与等级、两大配额分组卡片（`5h` 与 `weekly` 加粗
+  窗口标签、大号百分比、通栏进度条与重置倒计时），以及精简版可用模型与可折叠
+  不可用模型列表。
 - **诊断日志**：级别过滤、刷新、复制、清空（复用日志 RPC）。
+
+此外，通过独立受保护的 `ctx.inject(['slots', 'modelDirectories'], ...)` 软注入，
+向 `conversation.input.right`（`order: 10`，紧邻模型选择器左侧）注册紧凑型
+`ComposerQuotaBadge` 组件：
+- 仅在当前会话所选 `provider` 属于插件 `providers` 时渲染无框对齐文字（如
+  `5h | 87%`，无 5h 分组时回退 `quota | XX%`；每 60s 轮询并监听 `llm/models-updated`；
+  点击可强制刷新；全部账号登出或 `AUTH` 失败时立即清空旧状态为 `5h | --`）。
+- 悬停或键盘聚焦时通过 `ReactDOM.createPortal(..., document.body)` 弹出完整
+  配额浮层（按两大配额分组展示进度条与重置时间，支持 `Escape` 关闭）。
 
 所有服务访问可选链 + try/catch，`apply` 永不抛错（失败激活是致命
 web-boot 错误）；样式用宿主主题 token，组件卸载时移除。
 
 Host 侧 `AccountService` 是命令与 UI 的单一实现；RPC 路由
-`/api/antigravity-gateway-account/{status,login,cancel,logout,import,models}`
-沿用日志 RPC 的 envelope 协议。**环回守卫**（与 dsh-antigravity-auth 同策
-略）：WebServer 不存在（纯本地组合）或显式绑定 `127.0.0.1` 时启用；其他
-绑定下 RPC 注册为惰性路由（一律返回 `loopback-required`，不触碰服务），
-命令同样失败关闭。DSH 的命令/RPC 调用不携带调用方权威，无法豁免本地
-用户，故 fail closed。
+`/api/antigravity-gateway-account/{status,login,cancel,logout,import,models,switch}`
+沿用日志 RPC 的 envelope 协议。**环回守卫**（与 dsh-antigravity-auth 同策略）：
+WebServer 不存在（纯本地组合）或显式绑定 `127.0.0.1` 时启用；其他绑定下 RPC
+注册为惰性路由（一律返回 `loopback-required`，不触碰服务），命令同样失败关闭。
+DSH 的命令/RPC 调用不携带调用方权威，无法豁免本地用户，故 fail closed。
 
 登录 URL 的 redirect_uri 在回调服务器绑定后重写为实际端口（oauthPort=0
 随机端口时尤其重要），浏览器、Google、令牌交换三方一致。
@@ -364,7 +384,7 @@ Host 侧 `AccountService` 是命令与 UI 的单一实现；RPC 路由
 |---|---|---|
 | 未登录 | AUTH | 提示 /agw login 或 /agw import |
 | 401/403（未发射任何块） | AUTH | 强制刷新一次并重放；再失败则抛出 |
-| 429 | RATE_LIMIT | 解析 Retry-After（秒/HTTP-date，上限 1h）随失败携带 |
+| 429 / 预检耗尽 / 发射前流内 429 | RATE_LIMIT | 当 `autoSwitchAccount` 为 true 且未发射任何块时，标记当前账号冷却并通过 CAS 选择最佳备用账号保留原 `model` 与 `reasoningEffort` 重试；全账号耗尽后解析 Retry-After（秒/HTTP-date，上限 1h）抛出 `RATE_LIMIT` |
 | 400 + 溢出措辞 | CONTEXT_WINDOW_EXCEEDED | 触发 DSH 压缩路径 |
 | 503 + 容量措辞 | SERVER | 未发射块时退避重试 ≤2 次（1.5s/3s，上限 8s） |
 | 404（计划不可用模型） | MODEL_UNSUPPORTED | 查询/刷新实时可用性并附带上游原因说明 |
@@ -380,13 +400,22 @@ INVALID_MODEL→UNKNOWN_MODEL、PROTOCOL_DRIFT→MALFORMED_RESPONSE、CANCELLED�
 
 ## 8. 凭据与安全
 
-- 令牌存 DSH 凭据记录 `dsh-antigravity-gateway/google-account`
+- 多账号兼容存储：令牌存 DSH 凭据记录 `dsh-antigravity-gateway/google-account`
   （kind: grant），**同时总是镜像到 owner-only（0600）JSON 文件**（原子写
-  tmp+rename）。凭据服务按操作惰性解析（激活顺序不影响）；服务存在但记录
-  为空时回退读文件镜像并迁移进服务。任何一次 Host 启动无论凭据服务是否
-  就绪都能找到授权，重启不丢登录。
-- 刷新单飞：并发请求共享一个刷新 Promise；Google 轮换的 refresh token
-  立即落盘。提前 60s 刷新。
+  tmp+rename）。所有写操作经 `withWriteLock` 异步串行化：仅 1 个账号时保持
+  v1 单对象形状（向后兼容旧版），2 个及以上账号自动升级为 v2 `CredentialVault`
+  （`{ version: 2, activeAccountId, accounts }`）；`switchAccountIfCurrent()`
+  提供 CAS 原子切号防止并发请求连续跳号。
+- 身份去重与共享项目隔离：不同账号即使共享消费级项目 ID（`aicode-consumers`、
+  `inductive-dreamer-qrkws`），若 `email` 不同（或缺少 `email` 时 `refreshToken`
+  不同）绝不合并覆盖；`oauth.ts` 同时从 Google `id_token` JWT 解析 `email` 作为
+  `/userinfo` 偶发失败时的零网络兜底。
+- 凭据服务按操作惰性解析（激活顺序不影响）；服务存在但记录为空时回退读文件镜像
+  并迁移进服务。任何一次 Host 启动无论凭据服务是否就绪都能找到授权，重启不丢登录。
+- 按账号隔离单飞刷新与代数守卫：并发请求共享各自 `accountId` 的刷新 Promise；
+  Google 轮换的 refresh token 立即落盘；提前 60s 刷新。`accountGenerations`
+  按账号隔离，仅在该账号登出或重新登录时失效对应在途刷新，`switchAccount`
+  不中断其他账号正在进行的刷新。
 - PKCE verifier 只存 Host 内存（state→verifier 映射），授权 URL 可安全
   展示。回调服务器只绑 127.0.0.1；错误 state 拒绝该请求但不终结待决
   登录；Google 显式 error（access_denied）才失败。
@@ -410,10 +439,10 @@ RPC（read/stat/clear/level），同一 `LogService` 实现，经 `src/dsh/rpc.t
 
 ## 10. 测试、发布、演进剧本与排障
 
-离线验证（`npm run verify` 包含 `typecheck:ts` + `typecheck:client` + `build` + 153 项 `node:test`）不访问 Google：
+离线验证（`npm run verify` 包含 `typecheck:ts` + `typecheck:client` + `build` + 155 项 `node:test`）不访问 Google：
 - **单元与协议层**：模型路由/载荷/schema/响应/catalog 解析/传输/代理/日志/凭据耐久/原子写盘/命令/提示兼容；
 - **架构与契约守卫**：[architecture.test.mjs](tests/architecture.test.mjs) 校验四层单向依赖与无循环引用；[client-contract.test.mjs](tests/client-contract.test.mjs) 校验 `client.js` 加载安全、`#agw-styles` 去重与前后端 `rpc-contracts.ts` 100% 一致；
-- **端到端集成（本机假端点）**：文本/并行同名工具调用/401 刷新重放/404 禁用原因诊断/429/503 容量退避恢复/流内错误/空响应/多轮思考签名回放/卸载释放回调端口与 RPC 路由。
+- **端到端集成（本机假端点）**：文本/并行同名工具调用/401 刷新重放/404 禁用原因诊断/429 与预检及流内 429 自动切号（并发 CAS）/503 容量退避恢复/流内错误/空响应/多轮思考签名回放/卸载释放回调端口与 RPC 路由。
 
 CI：Node 22/24 × Ubuntu/Windows 矩阵，执行 `typecheck` + `build` + `test:only` + 打包产物校验 + 工作树清洁检查。
 发布：推 `v*` 标签 → 身份校验（标签=package.json=CHANGELOG 小节=README 引用）→ 全量校验 → 打包校验（禁止包含 `.npm-cache/`、`node_modules/`、`docs/refactoring/`）→ SHA256 → GitHub Release。

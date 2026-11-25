@@ -8,11 +8,11 @@
 ## 1. DSH 宿主实证调研结论（基于本机 DSH `0.2.2-rc.5` 源码）
 
 通过读取本机 DSH 客户端包源码（`@deepseek-ai/dsh-client-ui-conversation` 与 `@deepseek-ai/dsh-client-ui-model-selection`）：
-1. **聊天框插槽位置**：[InputBar.tsx](C:\Users\Vikrant\AppData\Local\Programs\DeepSeek%20Harness\resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-client-ui-conversation\src\client\skeleton\InputBar.tsx) 第 537–542 行在模型选择器触发按钮左侧紧邻位置渲染：
+1. **聊天框插槽位置**：`@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/InputBar.tsx` 第 537–542 行在模型选择器触发按钮左侧紧邻位置渲染：
    - `conversation.input.right`（`kind: 'list', scope: 'session'`）
    - `conversation.input.model`（`ModelSelect` 触发按钮）
    因此选择 `conversation.input.right` 是**唯一既在模型名称正左侧、又不会与 `conversation.input.model.label`（`kind: 'single'`）产生多插件互斥冲突**的标准插槽。
-2. **浮层裁剪约束**：[contract/slots.ts](C:\Users\Vikrant\AppData\Local\Programs\DeepSeek%20Harness\resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-client-ui-conversation\src\client\contract\slots.ts) 第 322–325 行明确规定：`conversation.input.right` 内的悬停浮层必须 Portal 到 `document.body`，避免被 composer 容器裁剪。
+2. **浮层裁剪约束**：`@deepseek-ai/dsh-client-ui-conversation/src/client/contract/slots.ts` 第 322–325 行明确规定：`conversation.input.right` 内的悬停浮层必须 Portal 到 `document.body`，避免被 composer 容器裁剪。
 3. **当前所选模型读取**：`dsh-client-ui-model-selection` 在客户端上下文暴露 `modelDirectories` 服务（`directoryFor(sessionId).store`，快照包含 `current: { provider, model, reasoningEffort? } | null`）。在 `client.js` 中采用独立受保护的 `ctx.inject(['slots', 'modelDirectories'], ...)` 子作用域挂载（外层保持硬依赖仅 `['slots']`），既支持 `modelDirectories` 晚挂载，又保证设置页在无对话视图环境中照常工作。
 
 ---

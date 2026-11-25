@@ -227,3 +227,34 @@ test('AuthManager manages multiple accounts, isolated refreshes, switchAccount, 
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('switchAccount does not abort an in-flight token refresh for another account', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-auth-switch-race-'))
+  try {
+    const file = path.join(dir, 'cred.json')
+    const store = new CredentialStore({ file, logger: noopLogger })
+    const acc1 = await store.addAccount({ refreshToken: '1//one', accessToken: 'ya29.exp', expiresAt: 1, email: 'one@example.com' })
+    const acc2 = await store.addAccount({ refreshToken: '1//two', accessToken: 'ya29.two', expiresAt: Date.now() + 3_600_000, email: 'two@example.com' }, { activate: false })
+
+    const transport = new AgyTransport({})
+    let releaseRefresh
+    const plainFetch = async () => {
+      await new Promise((resolve) => { releaseRefresh = resolve })
+      return new Response(JSON.stringify({ access_token: 'ya29.fresh-one', expires_in: 3600 }), { status: 200 })
+    }
+    const auth = new AuthManager({ store, transport, plainFetch, logger: noopLogger })
+
+    const inflight = auth.getCredentialForAccount(acc1.id)
+    while (!releaseRefresh) await new Promise((r) => setTimeout(r, 5))
+
+    await auth.switchAccount(acc2.id)
+    releaseRefresh()
+
+    const refreshed = await inflight
+    assert.equal(refreshed.accessToken, 'ya29.fresh-one')
+    assert.equal((await auth.status()).activeAccountId, acc2.id)
+    await transport.close()
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

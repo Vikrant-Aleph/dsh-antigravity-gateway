@@ -1,9 +1,9 @@
-# dsh-antigravity-gateway 重构独立审查与质量验收报告（REVIEW）
+# dsh-antigravity-gateway 新功能全面验收与独立审查报告（REVIEW）
 
 > **审查角色**：独立软件架构审查者 / 代码审查者 / 质量验收工程师  
-> **审查分支**：`refactor/modular-architecture` @ `e7fceeb`（对比基线 `main` @ `aedfa19`）  
+> **审查分支**：`refactor/modular-architecture` @ `1c93221`（覆盖新功能提交 `7e38a6f` ~ `1c93221`，基准重构提交 `b428f8a`，原始主干 `main` @ `aedfa19`）  
 > **审查时间**：2026-11-26  
-> **审查依据**：逐文件审阅实际源码、`client.js`、测试套件、构建/发布脚本、CI/CD 工作流、Git Diff 与全部 `docs/refactoring/` 文档，并独立复跑类型检查、构建、离线测试及打包校验。
+> **历史重构验收归档**：四层架构重构首轮与复审结论见 [REVIEW_ROUND2.md](REVIEW_ROUND2.md) 与 [FIXES.md](FIXES.md)。
 
 ---
 
@@ -11,12 +11,13 @@
 
 - **总体结论**：**有条件满足发布前条件（Conditional Go）**。
 - **核心判断**：
-  1. 本次重构**完整兑现了四层单向依赖架构**，100% 保留了 Antigravity 线缆协议语义、DSH 插件契约与用户凭据/配置存储格式；`REQUIREMENTS.md` 第 4 节及 `AUDIT.md` 中列出的全部 P0/P1 缺陷均已落地修复并配齐离线回归测试。
-  2. 独立复跑 `npm run verify`（`tsc` + `checkJs` + `build` + **18 个文件 / 137 项离线测试**）、`npm run pack:local` 与 `release-check.mjs --tag v0.1.0 --archive-dir .` **全部通过**。
-  3. **未发现 P0 阻塞性缺陷**，但独立代码审查发现 **1 项 P1 兼容性问题**（[client.js](client.js) 第 698–700 行 `slots.register` 方法解绑导致 `this` 上下文丢失，存在在真实 DSH 桌面端注册设置页时抛出 `TypeError` 的风险）及 **8 项 P2 维护性/边界优化项**。
-- **发布前建议**：
-  1. **发布前必做**：修复 **P1-01**（`client.js` 中 `slots.register` 保持 `this` 绑定，并在 `tests/client-contract.test.mjs` 中校验 `this` 指向）。
-  2. **真机 E2E 核验**：按 [REPORT.md §6.2](REPORT.md) 在真实 DSH Desktop 环境完成安装升级、OAuth 登录/取消、Settings 面板渲染、模型调用与卸载清理的人工 E2E 验证后再合并至 `main` 并打 Tag 发布。
+  1. **新功能核心实现完整、架构边界清晰**：多账号安全凭据库（`CredentialVault` v2 与单账号 v1 向后兼容）、共享 `aicode-consumers` 项目 ID 隔离与 `id_token` 邮箱兜底、按 `accountKey` 隔离的内存/磁盘目录缓存（`catalog-cache.json` v2）、配额耗尽预检与并发 CAS 自动切号（严格保留原所选模型与思考档位）、`/agw accounts` / `/agw switch` / `/agw logout [all]` 命令、设置页账号/模型视觉升级与额度进度条、以及聊天框 `conversation.input.right` 紧凑 `5h | XX%` 指示器和 `document.body` Portal 悬停浮层均已完整落地。
+  2. **独立验证全绿**：在无管道限制权限下独立复跑 `npm run verify`（`tsc` + `checkJs` + `build` + **18 个测试文件 / 154 项离线测试**）、`npm run pack:local` 与 `node scripts/release-check.mjs --tag v0.1.0 --archive-dir .` **全部通过**（总耗时 ~558ms，产出 `179.2 kB` / 133 文件 `.tgz`，不含 `.npm-cache/`、`node_modules/`、`docs/refactoring/` 或 `docs/features/`）。
+  3. **未发现 P0 阻塞问题**，但独立审查发现 **2 项 P1 问题**（登出全部账号后聊天框 `ComposerQuotaBadge` 仍残留旧账号额度状态；`docs/features/quota-multi-account/PLAN.md` 写入了个人本地绝对路径）及 **4 项 P2 维护性/文档同步问题**。
+- **发布前必要条件**：
+  1. 修复 **P1-01**（全量登出 / `AUTH` 失败时清空 `sharedQuotaState.report`）与 **P1-02**（清除 `PLAN.md` 中的个人本地路径）；
+  2. 同步 **P2-02**（补全 `TECHNICAL*.md` 中新功能章节并将测试计数更新为 `154`）；
+  3. 若拟以新版本（如 `v0.2.0`）对外发版，发布前需将 [CHANGELOG.md](../../CHANGELOG.md) 中的 `## [Unreleased]` 转为对应版本小节并同步更新 `package.json` 与 `README*.md` 版本引用；同时在真实 **DSH Desktop** 环境中完成真机人工 E2E 核验（多账号 OAuth、`conversation.input.right` 渲染与悬停定位、`429` 自动切号）。
 
 ---
 
@@ -24,11 +25,11 @@
 
 | 验证项目 | 执行命令 | 环境与条件 | 实际结果 | 备注 |
 |---|---|---|---|---|
-| **TypeScript & Client 类型检查** | `npm run typecheck` | Windows 11 · Node `v24.18.0` | **PASS (`exit 0`)** | 覆盖 `tsconfig.json` 与 `tsconfig.client.json`（`checkJs` + `strict`） |
-| **清理并编译** | `npm run build` | 同上 | **PASS (`exit 0`)** | `scripts/clean.mjs` 清空 `lib/` 并编译产出 ESM + `.d.ts` + `.map` |
-| **全量离线测试** | `npm run verify` | 同上（无管道限制权限） | **PASS (`exit 0`)** | **18 个测试文件 / 137 个用例全部通过**，总耗时 ~463ms（受限沙箱下 `node --test` 默认进程隔离因 piped stdio 触发已知 `spawn EPERM`） |
-| **本地打包与身份校验** | `npm run pack:local` + `node scripts/release-check.mjs --tag v0.1.0 --archive-dir .` | 同上 | **PASS (`exit 0`)** | 产出 `dsh-antigravity-gateway-0.1.0.tgz`（156.9 kB / 133 文件），`tar -tzf` 验证无 `.npm-cache/`、`node_modules/`、`docs/refactoring/` 或测试源码泄露；校验后已清理临时 `.tgz` |
-| **工作区与基线核对** | `git status` / `git diff --stat aedfa19..HEAD` | `refactor/modular-architecture` | **干净** | 76 个文件变更（+5842 / -2542）；30 个 `src/**/*.ts`（5,214 行）、18 个 `tests/*.test.mjs`（3,231 行）、`client.js`（682 行）；无未提交脏改；`version` 保持 `0.1.0` |
+| **TypeScript & Client 类型检查** | `npm run typecheck` | Windows 11 · Node `v24.18.0` | **PASS (`exit 0`)** | `tsconfig.json` 与 `tsconfig.client.json`（`checkJs` + `strict`）零报错 |
+| **清理并编译** | `npm run build` | 同上 | **PASS (`exit 0`)** | `scripts/clean.mjs` + `tsc -p tsconfig.json` |
+| **全量离线测试** | `npm run verify` | 同上（无管道限制权限） | **PASS (`exit 0`)** | **18 文件 / 154 用例全部通过**，总耗时 ~558ms |
+| **本地打包与身份校验** | `npm run pack:local` + `node scripts/release-check.mjs --tag v0.1.0 --archive-dir .` | 同上 | **PASS (`exit 0`)** | 产出 `179.2 kB` / 133 文件 `.tgz`，`package.json#files` 精确收敛为 `docs/DETAIL.md`，已清理临时 `.tgz` |
+| **工作区与代码规模核对** | `git status` / `git diff b428f8a..1c93221 --stat` | `refactor/modular-architecture` | **干净** | 30 个 `src/**/*.ts`（6,607 行）、18 个 `tests/*.test.mjs`（4,481 行）、`client.js`（1,302 行）；无未提交改动 |
 
 ---
 
@@ -36,95 +37,82 @@
 
 | # | 审查维度 | 结论 | 实证摘要 |
 |---|---|---|---|
-| **1** | **原始需求满足度**（[REQUIREMENTS.md](REQUIREMENTS.md)） | **满足** | 四层架构、16 个旧扁平文件清理、P0/P1 缺陷闭环、0 覆盖模块补测、CI/开源治理、双语文档同步及 `AGENTS.md` 收敛均已完成，且严守 Non-Goals（未加无关特性、未改协议/版本号/依赖）。 |
-| **2** | **目标架构符合度**（[PLAN.md](PLAN.md)） | **满足** | `src/shared/`（4 文件）、`src/protocol/`（7 文件）、`src/core/`（9 文件）、`src/dsh/`（9 文件）、`src/index.ts`（235 行薄入口）职责清晰，与 `PLAN.md` 映射表一致。 |
-| **3** | **功能退化或兼容性** | **基本满足（存在 1 项 P1）** | 线缆协议（`AGY_REQUEST_FIELD_ORDER`、`model_enum`、FNV-1a、Claude `VALIDATED`、签名回放）、`cordis.patch.yml`、`credential.json` 与 `@deprecated Bridge*` 导出别名均兼容；唯 `client.js:698-700` `registerSlot` 解绑 `this` 存在宿主兼容性风险（见 **P1-01**）。 |
-| **4** | **模块职责与依赖方向** | **满足** | `tests/architecture.test.mjs` 基于 TypeScript AST 静态校验单向边 `shared ← protocol ← core ← dsh ← index` 与环依赖检测；`src/protocol/` 无宿主、`undici`、`fs`/`http`/`net`/`child_process`/`fs-atomic.ts` 依赖。 |
-| **5** | **DSH 与 Antigravity 隔离** | **满足** | `@deepseek-ai/*` 仅出现于 `src/dsh/`（`config.ts`、`adapter.ts`、`stream-assembler.ts`）；`src/core/` 通过结构化接口（`CredentialsServiceLike`）解耦宿主；`src/protocol/` 完全脱离 I/O 与宿主。 |
-| **6** | **过度工程化评估** | **克制合理** | 运行时仅保留单依赖 `undici`；未引入 DI 容器、微服务或多余抽象；采用 `D-007` 零额外依赖方案；唯一略显空壳的是 `resolveGatewayConfig` 仅做 `as GatewayConfig` 强转（见 **P2-01**）。 |
-| **7** | **安全性、凭据、并发与资源管理** | **整体可靠（有少量 P2 边界）** | Account 与 Log RPC 均通过 `src/dsh/rpc.ts` 挂载 `127.0.0.1` loopback 守卫；原子写盘采用 PID+UUID 唯一临时文件与失败清理；OAuth PKCE verifier 仅存内存且回调仅绑 `127.0.0.1`；`PluginLogger` 五级脱敏且无敏感内容入库；`AgyTransport` 有界池与 `apply()` 卸载均正确释放资源。仅存在 `logout()`/`refresh()` 写回竞争等极低概率边界（见 **P2-05**、**P2-06**）。 |
-| **8** | **流式响应、认证、错误处理、取消与超时** | **可靠（有 2 项 P2 改进空间）** | `iterateSse` 竞态监听 `AbortSignal`（毫秒级退出）；`AuthManager.getCredential` 解除 caller abort 耦合；`ModelCatalog.fetchLiveState` 实现 `accountKey` single-flight 与代数防过期；401 单次刷新重放、429 `Retry-After`、400 溢出、503 有限退避均正常。`readBoundedText` 尚未对非 SSE 流体读取做 abort 竞态（见 **P2-03**），`startCallbackServer` 未调用 `closeAllConnections()`（见 **P2-04**）。 |
-| **9** | **测试真实有效性** | **良好（存在少量盲区）** | 18 个测试文件 / 137 用例全部离线确定性运行，覆盖协议序列化、签名回放、并行同名工具调用、401/404/429/503 端到端链路、并发原子写盘、卸载端口释放与前后端 RPC 契约；但尚未校验 `slots.register` 的 `this` 绑定、流式中途 abort 传递与 `MAX_DISPATCHERS` 淘汰（见 **P1-01**、**P2-07**）。 |
-| **10** | **CI/CD、构建与插件打包流程** | **合理可靠** | `ci.yml`（Ubuntu/Windows × Node 22/24）与 `release.yml` 均使用 SHA 锁定 Actions、`persist-credentials: false`、最小 `permissions`、`npm ci`、`typecheck` + `build` + `test:only` + `npm pack` 产物白名单验证 + clean-tree 检查；`package.json#files` 精确收敛为 `docs/DETAIL.md`，阻断 `docs/refactoring/` 打入发行包。仅 `pack:local` 重复执行一次 `build`（见 **P2-08**）。 |
-| **11** | **文档与真实实现一致性** | **主体一致（归档文档有轻微偏差）** | `AGENTS.md`、`TECHNICAL.md`、`TECHNICAL.us.md`、`README.md`、`README.us.md`、`CONTRIBUTING.md`、`SECURITY.md` 全部相对链接经脚本校验 0 死链，3 类演进 Playbooks 准确。但 `REPORT.md` 将 18 个测试文件误记为 17 个，`PROGRESS.md` 保留了未清理的 Phase 1 `Work in Progress`/`Known Issues` 段落（见 **P2-08**）。 |
-| **12** | **废弃代码、临时文件与无用依赖** | **源码干净（本地缓存目录需注意）** | 旧 16 个扁平 `src/*.ts` 已从 Git 彻底删除且无残留引用；`AccountService` 中无用 `logger` 字段与 `adapter.ts` 动态 `import('./models.js')` 已清理；工作区根目录存在历史 `.npm-cache/`（2026-11-22 创建，已在 `.gitignore` 忽略且未入打包产物，建议提交/归档前按 `AGENTS.md` §5 清理）。 |
-| **13** | **误标 `DONE` 的未完成任务** | **无核心功能漏项** | `P0-001`~`P5-003` 共 23 项任务主体均已真实落地并可独立复现；仅 `PROGRESS.md` 文档收尾不够干净，以及 `P3-004` 在 `client.js` 引入了 P1 `this` 解绑问题。 |
-| **14** | **长期维护与扩展能力** | **优秀** | 四层边界清晰、AST 自动化守卫防止架构腐化、`rpc-contracts.ts` + `client-contract.test.mjs` 守护前后端一致、`CredentialStore`/`AuthManager`/`ModelCatalog` 无全局单例，满足未来多账号与协议漂移演进。 |
+| **1/2** | **功能规格、更新日志与技术文档符合度** | **功能符合 SPEC/CHANGELOG；TECHNICAL 滞后** | 新功能全部符合 [quota-multi-account/SPEC.md](../features/quota-multi-account/SPEC.md)、[ui-quota-polish/SPEC.md](../features/ui-quota-polish/SPEC.md)、[account-ui-multi-fix/SPEC.md](../features/account-ui-multi-fix/SPEC.md) 与 [CHANGELOG.md](../../CHANGELOG.md) `[Unreleased]`；但 `TECHNICAL.md` / `TECHNICAL.us.md` 尚未同步新功能细节且测试数写为 153（见 **P2-02**）。 |
+| **3** | **功能退化或兼容性** | **基本兼容（存在 1 项 UI 退化/缺陷）** | 线缆协议、单账号 v1 `credential.json` 与 `catalog-cache.json` v1 向后兼容 100% 保留；DSH 真实宿主契约（`conversation.input.right`、`modelDirectories`、`ModelSelect.module.css` `.trigger` 尺寸字体）已核对一致；唯全量登出后 `ComposerQuotaBadge` 未清除旧账号缓存（见 **P1-01**）。 |
+| **4** | **模块职责与依赖方向** | **满足** | `tests/architecture.test.mjs` 静态 AST 守卫通过，严守 `shared ← protocol ← core ← dsh ← index` 单向依赖与无环约束；纯配额匹配 `selectQuotaForModel` 与 `accountCacheKey` 收敛于 `src/protocol/catalog-parser.ts`。 |
+| **5** | **DSH 与 Antigravity 隔离** | **满足** | `@deepseek-ai/*` 仅存于 `src/dsh/`；`src/core/` 与 `src/protocol/` 零宿主导入；`client.js` 将 `modelDirectories` 设为 `ctx.inject(['slots', 'modelDirectories'], ...)` 软依赖，不破坏无对话上下文场景。 |
+| **6** | **过度工程化评估** | **克制合理** | 运行时仍仅依赖 `undici`；`client.js` 保持零 bundler；`CredentialVault` 与 `catalog-cache.json` v2 升级轻量且向后兼容。 |
+| **7** | **安全性、凭据、并发与资源管理** | **整体可靠（有 1 项 P1 文档合规与 2 项 P2 边界）** | `CredentialStore` 所有写操作经 `withWriteLock` 串行化并原子写 `0600`；共享 `aicode-consumers` 项目 ID 不再合并不同账号；Account/Log RPC（含新增 `switch`）统一挂载动态 `127.0.0.1` loopback 守卫。但 `docs/features/quota-multi-account/PLAN.md` 残留本地用户名路径（见 **P1-02**）；`AuthManager.switchAccount` 递增 `authGeneration` 会误伤并发刷新的令牌（见 **P2-01**）。 |
+| **8** | **流式响应、认证、错误处理、取消与超时** | **可靠** | `autoSwitchAccount` 仅在 `!hasEmitted.value && !signal?.aborted` 时触发故障转移，已输出部分块后绝不跨账号重放；每请求以 `triedAccountIds` 限每账号至多尝试 1 次，配合 `switchAccountIfCurrent` CAS 防并发连跳；全耗尽时透传带 `providerRetryAfterMs` 的 `RATE_LIMIT`；按 `accountId` 隔离 `refreshInFlightByAccount`。 |
+| **9** | **测试真实有效性** | **扎实** | 新增多账号 `CredentialVault` v1→v2 迁移、同项目 ID `aicode-consumers` 隔离、`id_token` 邮箱解析、跨账号缓存/冷却隔离、429/预检/流内 `RESOURCE_EXHAUSTED` 并发 CAS 切号、`switch` RPC、`/agw accounts/switch/logout all`，以及 `client.js` 在状态化 React Hook + Portal mock 下对进度条、Account 卡片、Composer `5h \| 87%` 与非自有模型隐藏的完整验证。 |
+| **10** | **CI/CD、构建与插件打包流程** | **合理可靠** | `ci.yml`/`release.yml` 与 `npm pack` 门禁正常，133 个打包文件精确排除测试与 `docs/features/`、`docs/refactoring/`；`release-check.mjs` 可顺手增补 `docs/features/` 防护（见 **P2-04**）。 |
+| **11** | **文档与真实实现一致性** | **部分滞后** | `README*.md`、`CHANGELOG.md` 同步到位；但 `TECHNICAL*.md` 未同步新特性、`README*.md`/`TECHNICAL*.md` 测试计数为 153（实际 154），且 `PLAN.md` 含本地绝对路径。 |
+| **12** | **废弃代码、临时文件与无用依赖** | **干净** | 零无用依赖、零临时 `.tgz` 或废弃源码文件；工作区根目录历史 `.npm-cache/`（2026-11-22）已被 `.gitignore` 忽略且不入 `.tgz`。 |
+| **13** | **误标 `DONE` 的未完成任务** | **基本属实（有 2 项遗漏）** | `F-001`~`F-006` 及后续 polish 均已落地代码并配齐测试；仅 `F-006` 所宣称的“已同步 `TECHNICAL*.md`”仅改了测试数而遗漏正文新特性，且 `PLAN.md` 提到的按 `Escape` 键关闭浮层未在 `client.js` 实现（见 **P2-03**）。 |
+| **14** | **长期维护与扩展能力** | **良好** | 多账号数据结构、隔离缓存键与单向四层边界清晰，具备长期维护性与继续扩展多模型/新配额形状的能力。 |
 
 ---
 
 ## 4. 分级问题清单
 
-> 本次审查**未发现 P0 级严重问题**。以下列出独立审查确认的 **1 项 P1 问题**与 **8 项 P2 优化建议**。
+> 本轮全面验收**未发现 P0 级严重问题**。以下列出独立审查确认的 **2 项 P1 问题**与 **4 项 P2 优化建议**。
 
 ### P1：重要问题（建议在发布前修复）
 
-#### [P1-01] `client.js` 中 `slots.register` 解绑导致 `this` 丢失，存在真机设置页注册失败风险
-- **代码位置**：[client.js:696-710](../../client.js#L696-L710)（及验证盲区 [tests/client-contract.test.mjs:146-156](../../tests/client-contract.test.mjs#L146-L156)）
-- **问题原因**：对比基线提交 `aedfa19`，`client.js` 原为 `ctx.slots.register(...)`（保留 `this === ctx.slots`）。在 `P3-004` 引入 `// @ts-check` 时，为消除闭包内 TS2722 可空报错，代码被改写为：
-  ```js
-  const registerSlot = slots.register;
-  slots.inject('settings.section', () =>
-    registerSlot({ ... }, GatewayPanel),
-  );
-  ```
-  该方法提取剥离了接收器对象，在严格模式下 `registerSlot(...)` 执行时 `this` 为 `undefined`。同时，由于 `slots.inject` 的回调通常在 slot 声明时异步触发，若发生异常将逃逸出 `apply()` 内的同步 `try/catch`。
-- **影响范围**：若 DSH 宿主 `@deepseek-ai/dsh-client-ui-slots` 或 Cordis 服务代理在 `register()` 内部访问 `this`，真实 DSH Desktop 中 **Settings → Antigravity Gateway** 页面将静默或异常注册失败；离线测试因 mock 对象未使用 `this` 而未能拦截该回归。
+#### [P1-01] 全部账号登出后，聊天框额度指示器 `ComposerQuotaBadge` 未清除旧账号缓存状态
+- **代码位置**：[client.js:620-630, 697-699, 1046-1065](../../client.js#L620-L630)
+- **问题原因**：`AccountPanel.act` 在 `logout` 成功后触发 `void fetchModelsReport(rpc, false)`（`client.js:698`）。当用户登出最后一个账号（或执行 `/agw logout all` 触发 `llm/models-updated`）时，后端 `AccountService.models()` 调用 `catalog.getAvailabilityReport()` 会因无凭据抛出 `AUTH` 错误，导致 `rpcCall` 返回 `{ ok: false, error: ... }`。而 `fetchModelsReport()` 仅在 `res.ok && res.value` 时调用 `publishSharedQuota`（`client.js:623`），从未在登出后或 `AUTH` 失败时清理 `sharedQuotaState.report`。
+- **影响范围**：用户退出全部账号后，只要当前对话仍保留着本插件的模型选择（DSH `ModelDirectory` 设计上会保留已选模型），聊天框底部仍会继续显示已登出账号的 `5h | XX%`，且悬停浮层仍展示旧账号邮箱与旧配额进度条，造成严重的状态误导。
 - **修复建议**：
-  1. 在 [client.js](../../client.js) 改为 `slots.register.call(slots, ...)` 或 `const registerSlot = slots.register.bind(slots)`；
-  2. 在 [tests/client-contract.test.mjs](../../tests/client-contract.test.mjs) 的 `slots.register` mock 中增加 `assert.equal(this, ctx.slots)` 断言。
+  1. 在 [client.js](../../client.js) 增加 `clearSharedQuota()`（将 `sharedQuotaState.report = null` 并通知 `listeners`）；
+  2. 在 `fetchModelsReport()` 遇到 `models` 请求失败（尤其是未登录错误，或 `AccountPanel` 执行 `logout` 后 `status().loggedIn === false`）时调用 `clearSharedQuota()`；
+  3. 在 [tests/client-contract.test.mjs](../../tests/client-contract.test.mjs) 补充登出后 `ComposerQuotaBadge` 回退为 `5h | --` 且浮层不展示旧账号邮箱的回归断言。
+
+#### [P1-02] `docs/features/quota-multi-account/PLAN.md` 提交了包含个人本地绝对路径的链接
+- **代码位置**：[docs/features/quota-multi-account/PLAN.md:11, 15](../features/quota-multi-account/PLAN.md#L11-L15)
+- **问题原因**：调研章节中的 Markdown 链接直接写入了本机路径 `C:\Users\Vikrant\AppData\Local\Programs\DeepSeek%20Harness\resources\app.asar\dsh\...`，违反了 [AGENTS.md §5](../../AGENTS.md#L65)「严禁把个人本地路径写入日志或仓库文档」的安全红线，且在跨机器与 GitHub 上构成死链。
+- **影响范围**：虽然 `docs/features/` 不会打入 `.tgz` 发行包，但已进入 Git 版本库历史；若公开推送至 GitHub 会暴露本地系统用户名与绝对目录路径。
+- **修复建议**：将两处链接改为包相对描述（如 `@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/InputBar.tsx` 与 `src/client/contract/slots.ts` 的纯文本引用），不保留 `C:\Users\...` 本地路径。
 
 ---
 
 ### P2：一般维护性问题（可后续或顺手优化）
 
-#### [P2-01] `resolveGatewayConfig` 仅做类型强转，未实际应用 Schema 默认值
-- **代码位置**：[src/dsh/config.ts:47, 56-58](../../src/dsh/config.ts#L47-L58)、[src/index.ts:64, 74](../../src/index.ts#L64-L74)
-- **问题原因**：`resolveGatewayConfig(raw)` 直接执行 `return raw as GatewayConfig`，未调用 `Config(raw)`；且 `dumpRequestsTo: Schema.string()` 导致 `GatewayConfig['dumpRequestsTo']` 被推导为必选 `string` 而非 `string | undefined`。
-- **影响范围**：正常经 Cordis 运行时加载会先由宿主求值 `Config`，但若测试或集成方直接调用 `apply(ctx, {})` 传入空对象或部分配置，`cfg.providers.join(',')` 会直接抛出 `TypeError`。
-- **修复建议**：在 `resolveGatewayConfig` 中通过 `Config(raw)` 归一化配置（需注意 `dumpRequestsTo` 可选性），并在 `tests/index.test.mjs` 补充 `apply(ctx, {})` 缺省配置用例。
+#### [P2-01] `AuthManager.switchAccount` / `switchAccountIfCurrent` 递增 `authGeneration` 会误中断并发刷新的令牌请求
+- **代码位置**：[src/core/auth.ts:154-191, 312-331](../../src/core/auth.ts#L168-L191)
+- **问题原因**：`switchAccount()` 与 `switchAccountIfCurrent()` 执行了 `this.authGeneration += 1` 和 `this.refreshInFlightByAccount.clear()`，而 `refresh()` 在拿到新令牌后校验 `if (this.authGeneration !== gen) throw GatewayError(..., 'ABORTED')`。
+- **影响范围**：当并发请求或后台 `getCredentialForAccount(accountId)` 正在进行 ~200ms 的令牌刷新请求时，若同一瞬间发生手动或自动切号（账号本身并未被登出删除），正在刷新的请求会被误判为 `ABORTED` 并丢弃刚拿到的新令牌。
+- **修复建议**：将防登出写回的代数改为按 `accountId` 隔离（`accountGenerations: Map<string, number>`），仅在 `logout()` / `addAccount()` / `importFromAntigravityAuth()` 变更该账号记录时递增对应 `accountId` 的代数；`switchAccount` / `switchAccountIfCurrent` 仅切换指针，无需递增代数或清空其他账号的 `refreshInFlightByAccount`。
 
-#### [P2-02] `ModelCatalog` 在 TTL 过期后由 `list()` 刷新时未重置 `cachedFullReport`，导致配额与 Tier 缓存超期复用
-- **代码位置**：[src/core/catalog.ts:142, 305-322](../../src/core/catalog.ts#L305-L322)
-- **问题原因**：先调用 `getAvailabilityReport()` 会将 `this.cachedFullReport` 设为 `true`。30s TTL 过期后若先调用 `list()`（`includeTierAndQuota = false`, `force = false`），`runFetchLiveState` 刷新 `parsed` 与 `expiresAt` 时仅在 `else if (force)` 分支重置 `this.cachedFullReport = false`，导致 `cachedFullReport` 仍保持 `true`。
-- **影响范围**：随后在新的 30s 窗口内调用非强制的 `getAvailabilityReport()`（如 `/agw models`）会命中缓存，返回上一周期的旧 `quotaGroups`/`tier` 并带新的 `checkedAt`（设置页“重新检测”与 `/agw refresh` 传 `force: true` 不受影响）。
-- **修复建议**：在 `!includeTierAndQuota` 分支统一设置 `this.cachedFullReport = false`（或独立记录配额/Tier 的缓存有效期）。
-
-#### [P2-03] `readBoundedText` 未对阻塞读流竞态监听 `AbortSignal`，且超限抛错时未取消底层 body
-- **代码位置**：[src/core/transport/sse.ts:18-45](../../src/core/transport/sse.ts#L18-L45)、[src/core/transport/http-client.ts:173-176](../../src/core/transport/http-client.ts#L173-L176)、[src/core/auth.ts:302](../../src/core/auth.ts#L302)、[src/core/catalog.ts:451](../../src/core/catalog.ts#L451)
-- **问题原因**：`http-client.ts` 在收到响应头后即在 `finally` 中清除请求级超时与 `signal` 监听；`iterateSse` 已通过 `withIdleTimeout` 竞态监听 `signal`，但 `readBoundedText` 仍只在循环顶部检查 `signal?.aborted`，未对 `reader.read()` 做 abort 竞态，且超限抛错时未调用 `reader.cancel()`。
-- **影响范围**：非 SSE 响应（`loadCodeAssist`、`fetchAvailableModels`、错误体）若在响应头返回后网络卡顿且调用方取消请求，需等待底层 undici `bodyTimeout`（默认 180s）才返回；超限抛错时流关闭依赖 GC。
-- **修复建议**：在 `readBoundedText` 中使用 `raceWithAbort(reader.read(), signal)`，并在异常退出路径调用 `await reader.cancel().catch(() => {})`。
-
-#### [P2-04] `startCallbackServer` 关闭时未强制断开 Keep-Alive 连接
-- **代码位置**：[src/core/oauth.ts:214-235](../../src/core/oauth.ts#L214-L235)
-- **问题原因**：`close()` 仅调用 `server.close()`，未调用 Node 18.2+ 提供的 `server.closeAllConnections?.()`；且 `server.once('error', ...)` 未清理 `options.signal` 上的 `onAbort` 监听器。
-- **影响范围**：当浏览器在回调端口（默认 `51121`）保留 HTTP keep-alive 连接（例如请求 `/favicon.ico` 或重定向页后未立即断开）时，取消登录或卸载插件后端口释放可能延迟至 Node 默认 keep-alive 超时（约 5s）。
-- **修复建议**：在 `close()` 中调用 `server.closeAllConnections?.()`，并在 `error` 回调中 `options.signal?.removeEventListener('abort', onAbort)`。
-
-#### [P2-05] `AuthManager.logout()` 与在途 `refresh()` 之间存在凭据写回竞争
-- **代码位置**：[src/core/auth.ts:65, 114-140, 219-224](../../src/core/auth.ts#L114-L140)
-- **问题原因**：`logout()` 调用 `store.delete()` 但不使进行中的 `refresh()` 失效；若刷新请求正好在 `logout()` 期间返回，仍会执行 `await this.store.write(next)`。
-- **影响范围**：极低概率并发时序下，已退出登录的本地凭据可能被在途刷新重新写入。
-- **修复建议**：为 `AuthManager` 引入类似 `ModelCatalog` 的代数计数 `authGeneration`，在 `logout()` / `importFromAntigravityAuth()` 时递增并清空 `refreshInFlight`，`refresh()` 写盘前校验代数未变。
-
-#### [P2-06] `rpc.ts` 对 `webServer` 环回守卫状态的求值固化在 `connection` 挂载瞬间
-- **代码位置**：[src/dsh/rpc.ts:49-50, 80-82](../../src/dsh/rpc.ts#L49-L50)（与重构前行为一致）
-- **问题原因**：`registerRpcNamespace` 在 `ctx.inject(['connection'], ...)` 回调执行时读取一次 `ctxWithConnection.get?.('webServer')` 并固定 `mode`。
-- **影响范围**：若特殊组合下 `webServer` 晚于 `connection` 挂载且绑定非 `127.0.0.1` 地址，路由不会动态切换为 `blocked`。
-- **修复建议**：在每个 RPC 路由的 `fetch` 处理内动态调用 `accountModeFor(ctxWithConnection.get?.('webServer') as WebServerLike | undefined)`。
-
-#### [P2-07] 测试覆盖边界可进一步补充
-- **代码位置**：[tests/adapter.test.mjs](../../tests/adapter.test.mjs)、[tests/transport.test.mjs](../../tests/transport.test.mjs)、[tests/client-contract.test.mjs](../../tests/client-contract.test.mjs)
-- **问题原因**：当前测试未覆盖流式中途触发 `AbortSignal` 退出、`hasEmitted.value === true` 后发生异常禁止重试、`dumpRequestsTo` 异步落盘验证，以及 `AgyTransport` 超过 `MAX_DISPATCHERS`（4）时的 LRU 淘汰关闭行为。
-- **影响范围**：上述边界仅靠代码走读保障，缺少自动化回归护卫。
-- **修复建议**：后续在对应测试文件增补离线用例（连同 `P1-01` 的 `this` 绑定断言）。
-
-#### [P2-08] 文档、脚本与工作区清洁度细节不一致
+#### [P2-02] `TECHNICAL.md` / `TECHNICAL.us.md` 未同步新功能架构细节，且双语文档测试计数滞后
 - **代码位置**：
-  - [docs/refactoring/REPORT.md:15](REPORT.md#L15)：测试文件数写为 `17 文件`，实际为 **18 文件 / 137 用例**（11 原有 + 7 新增）；
-  - [docs/refactoring/PROGRESS.md:46-48, 62-85](PROGRESS.md#L62-L85)：`Completed Work` 中 `P1-003` 重复出现两次，且下半部分残留 Phase 1 时期的 `Work in Progress`、`Verification Results`（106 测试）、`Known Issues and Blockers` 与 `Pending Decisions` 未随 Phase 5 终态同步清理/更新；
-  - [package.json:36-37](../../package.json#L36-L37)：`pack:local` 先运行 `npm run build`，随后的 `npm pack` 触发 `prepack` 再次执行 `npm run build`（重复编译一次）；
-  - [TECHNICAL.md:378](../../TECHNICAL.md#L378) / [TECHNICAL.us.md:420](../../TECHNICAL.us.md#L420)：仍引用 `BridgeError → LlmError`，可同步为 `GatewayError → LlmError`（保留 `BridgeError` 别名说明）；
-  - 工作区根目录残留 `2026-11-22` 生成的 `.npm-cache/`（虽被 `.gitignore` 忽略且未进入 `.tgz`，但 `AGENTS.md §5` 要求提交前清理工作区 `.npm-cache/`）。
-- **修复建议**：修正文档数字与陈旧段落、简化 `pack:local` 为 `npm pack`、更新 `TECHNICAL*.md` 主符号名，并在最终合并前清理本地 `.npm-cache/`。
+  - [TECHNICAL.md](../../TECHNICAL.md)（§3.2、§6.1–6.3、§8、§10 L413）与 [TECHNICAL.us.md](../../TECHNICAL.us.md)（同章节、§10 L467）；
+  - [README.md:155](../../README.md#L155)、[README.us.md:168](../../README.us.md#L168)。
+- **问题原因**：`F-006` 仅同步了 `CHANGELOG.md`、`README*.md` 的功能表与 `TECHNICAL*.md` 的测试数字（且停留在 `153`，未随 `1c93221` 新增测试同步至 `154`），`TECHNICAL*.md` 正文仍缺 `autoSwitchAccount` 配置、`accounts`/`switch` 命令、`switch` RPC、`CredentialVault` v2、`SHARED_PROJECT_IDS`、`catalog-cache.json` v2 与 `conversation.input.right` 聊天框指示器说明。
+- **影响范围**：违反 [AGENTS.md §5](../../AGENTS.md#L67)「改架构/协议/RPC 必须同步更新 `TECHNICAL*.md`」，增加后续维护者理解偏离风险。
+- **修复建议**：同步更新 `TECHNICAL.md` / `TECHNICAL.us.md` 对应章节，并将四份文档中的测试数量统一更新为 `154`。
+
+#### [P2-03] `client.js` 聊天框徽标在无 `5h` 分组时文案固定显示 `5h |` 且缺少 `Escape` 关闭快捷键
+- **代码位置**：[client.js:1065-1067, 1134-1149](../../client.js#L1065-L1067)
+- **问题原因**：
+  1. 当 `selectCompactQuota` 命中无 `5h` bucket 的单模型配额回退（`window: 'model'`，如 `gpt-oss-120b-medium`）时，L1067 仍硬编码拼接 `` `5h | ${pct}%` ``；
+  2. [quota-multi-account/PLAN.md §2.5](../features/quota-multi-account/PLAN.md#L87) 约定浮层支持“鼠标移出或按 `Escape` 关闭”，当前实现了悬停与失焦（`onBlur`）关闭，尚未绑定 `Escape` 键处理。
+- **修复建议**：当 `compact.window === 'model'` 时可显示 `quota | ${pct}%`（或统一提示语义），并在按钮 `onKeyDown` 中补充 `Escape` 关闭逻辑。
+
+#### [P2-04] `deriveAccountId` 对无邮箱共享项目 ID 的防御与 `release-check.mjs` 黑名单增强
+- **代码位置**：[src/core/credentials.ts:71-81, 305-308](../../src/core/credentials.ts#L71-L81)、[scripts/release-check.mjs:72-78](../../scripts/release-check.mjs#L72-L78)
+- **问题原因**：
+  1. `deriveAccountId` 在缺少 `email` 时未跳过 `SHARED_PROJECT_IDS`（`aicode-consumers` 等），使多个无邮箱账号先派生相同 ID 再依赖 `addAccount` 的 `${id}-${existing.accounts.length + 1}` 去重（若中间账号被删后再新增存在重号隐患）；
+  2. `release-check.mjs` 已检查 `package/docs/refactoring/`，建议顺手加入 `package/docs/features/` 作为纵深防护（当前 `package.json#files` 已正确排除）。
+- **修复建议**：在 `deriveAccountId` 中增加 `!SHARED_PROJECT_IDS.has(credential.projectId)` 判断，并在 `addAccount` 去重循环中递增后缀直到不冲突；`release-check.mjs` 增加 `package/docs/features/` 校验。
+
+---
+
+## 5. 真实环境人工 E2E 核验补充清单
+
+自动化测试已充分验证离线协议、缓存隔离与并发切号逻辑，发布前仍须在真实 **DSH Desktop** 环境中补充验证以下新功能路径：
+1. 安装打包产物 `.tgz` 覆盖旧版单账号环境，确认既有 `credential.json` 平滑保留且无需重新登录；
+2. 登录第 2 个同属 `aicode-consumers` 的 Google 账号，确认设置 → 账号 tab 正确列出 2 个账号且不互相覆盖，可正常切换与单独移除；
+3. 设置 → 模型 tab 验证 `5h` / `weekly` 配额卡片、进度条颜色、重置倒计时及可折叠不可用模型列表；
+4. 在聊天框选择本插件模型，确认模型名左侧 `5h | XX%` 与模型名对齐且无边框、悬停浮层不被容器裁剪且正常显示双池配额，切换到 DeepSeek 等其他模型后徽标立即隐藏；
+5. 触发或模拟主账号 `429` 配额耗尽，验证自动切至备用账号并保持原所选模型继续输出。

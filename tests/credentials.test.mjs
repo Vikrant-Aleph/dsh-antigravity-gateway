@@ -238,5 +238,12 @@ test('accounts sharing aicode-consumers projectId do not overwrite each other', 
     assert.ok(listed.accounts.some((a) => a.email === 'alice@gmail.com'))
     assert.ok(listed.accounts.some((a) => a.email === 'bob@gmail.com'))
     assert.ok(listed.accounts.some((a) => a.refreshToken === '1//charlie'))
+
+    // No-email accounts with shared projectId derive unique token-hashed IDs (never proj:aicode-consumers).
+    const noEmailA = await store.addAccount({ refreshToken: '1//noemail-a', accessToken: 'ya29.na', expiresAt: 10_000, projectId: 'aicode-consumers' })
+    const noEmailB = await store.addAccount({ refreshToken: '1//noemail-b', accessToken: 'ya29.nb', expiresAt: 10_000, projectId: 'aicode-consumers' })
+    assert.ok(noEmailA.id.startsWith('acct:'))
+    assert.ok(noEmailB.id.startsWith('acct:'))
+    assert.notEqual(noEmailA.id, noEmailB.id)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })

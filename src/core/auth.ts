@@ -79,7 +79,8 @@ export class AuthManager {
   private readonly logger: GatewayLogger
   private readonly endpoints: readonly string[]
   private readonly refreshInFlightByAccount = new Map<string, Promise<GatewayAccountRecord>>()
-  private authGeneration = 0
+  private globalAuthGeneration = 0
+  private readonly accountGenerations = new Map<string, number>()
   private pendingLogin: { server: CallbackServer; controller: AbortController; done: Promise<{ email?: string; projectId?: string; accountId?: string }> } | undefined
   private pendingUrl: string | undefined
   private lastLoginError: string | undefined
@@ -136,6 +137,20 @@ export class AuthManager {
     return this.ensureFreshCredential(target, signal, forceRefresh)
   }
 
+  private generationFor(accountId: string): number {
+    return this.accountGenerations.get(accountId) ?? 0
+  }
+
+  private invalidateAccountRefresh(accountId?: string): void {
+    if (accountId !== undefined) {
+      this.accountGenerations.set(accountId, this.generationFor(accountId) + 1)
+      this.refreshInFlightByAccount.delete(accountId)
+      return
+    }
+    this.globalAuthGeneration += 1
+    this.refreshInFlightByAccount.clear()
+  }
+
   private async ensureFreshCredential(
     stored: GatewayAccountRecord,
     signal?: AbortSignal,
@@ -153,7 +168,7 @@ export class AuthManager {
     }
     let flight = this.refreshInFlightByAccount.get(stored.id)
     if (!flight) {
-      const gen = this.authGeneration
+      const gen = { accountGen: this.generationFor(stored.id), globalGen: this.globalAuthGeneration }
       const created = this.refresh(stored, gen).finally(() => {
         if (this.refreshInFlightByAccount.get(stored.id) === created) {
           this.refreshInFlightByAccount.delete(stored.id)
@@ -165,13 +180,16 @@ export class AuthManager {
     return raceWithAbort(flight, signal)
   }
 
-  private async refresh(stored: GatewayAccountRecord, gen: number): Promise<GatewayAccountRecord> {
+  private async refresh(
+    stored: GatewayAccountRecord,
+    gen: { accountGen: number; globalGen: number },
+  ): Promise<GatewayAccountRecord> {
     this.logger.debug('auth', 'refreshing access token', { accountId: stored.id })
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(new Error('token refresh timeout')), 30_000)
     try {
       const tokens = await refreshAccessToken(this.plainFetch, stored.refreshToken, controller.signal)
-      if (this.authGeneration !== gen) {
+      if (this.generationFor(stored.id) !== gen.accountGen || this.globalAuthGeneration !== gen.globalGen) {
         throw new GatewayError('Authentication state changed during token refresh', 'ABORTED')
       }
       const next: GatewayAccountRecord = {
@@ -230,9 +248,8 @@ export class AuthManager {
           ...(projectId ? { projectId } : {}),
           ...(email ? { email } : {}),
         }
-        this.authGeneration += 1
-        this.refreshInFlightByAccount.clear()
         const saved = await this.store.addAccount(credential, { activate: true })
+        this.invalidateAccountRefresh(saved.id)
         if (meta.tier !== undefined) {
           this.cachedTiers.set(saved.id, meta.tier)
         }
@@ -280,19 +297,25 @@ export class AuthManager {
   }
 
   async logout(accountId?: string, all = false): Promise<void> {
-    this.authGeneration += 1
-    this.refreshInFlightByAccount.clear()
     if (!accountId || all) {
       this.cancelLogin()
     }
     if (all) {
+      this.invalidateAccountRefresh()
       this.cachedTiers.clear()
       await this.store.delete()
       this.logger.info('auth', 'signed out of all accounts; local credentials removed')
       return
     }
+    const targetId = accountId ?? (await this.store.readActiveAccount())?.id
+    if (targetId) {
+      this.invalidateAccountRefresh(targetId)
+    }
     const result = await this.store.removeAccount(accountId)
     if (result.removedId) {
+      if (result.removedId !== targetId) {
+        this.invalidateAccountRefresh(result.removedId)
+      }
       this.cachedTiers.delete(result.removedId)
     }
     if (!result.nextActiveId) {
@@ -311,8 +334,6 @@ export class AuthManager {
 
   async switchAccount(accountId: string): Promise<AccountSummary> {
     const target = await this.store.setActiveAccount(accountId)
-    this.authGeneration += 1
-    this.refreshInFlightByAccount.clear()
     this.logger.info('auth', 'switched active account', { accountId: target.id })
     return toAccountSummary(target, target.id)
   }
@@ -320,8 +341,6 @@ export class AuthManager {
   async switchAccountIfCurrent(expectedAccountId: string, nextAccountId: string): Promise<boolean> {
     const switched = await this.store.switchAccountIfCurrent(expectedAccountId, nextAccountId)
     if (switched) {
-      this.authGeneration += 1
-      this.refreshInFlightByAccount.clear()
       this.logger.info('auth', 'auto-switched active account', {
         fromAccountId: expectedAccountId,
         toAccountId: nextAccountId,
@@ -378,9 +397,8 @@ export class AuthManager {
       ...(projectId ? { projectId } : {}),
       ...(email ? { email } : {}),
     }
-    this.authGeneration += 1
-    this.refreshInFlightByAccount.clear()
     const saved = await this.store.addAccount(credential, { activate: true })
+    this.invalidateAccountRefresh(saved.id)
     this.cachedTiers.delete(saved.id)
     this.logger.info('auth', 'imported account from dsh-antigravity-auth', {
       accountId: saved.id,

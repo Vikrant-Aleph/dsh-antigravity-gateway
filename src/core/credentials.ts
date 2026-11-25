@@ -68,12 +68,18 @@ function isCredential(value: unknown): value is GatewayCredential {
   return typeof value.refreshToken === 'string' && value.refreshToken.length > 0
 }
 
+const SHARED_PROJECT_IDS = new Set(['aicode-consumers', 'inductive-dreamer-qrkws'])
+
 export function deriveAccountId(credential: Pick<GatewayCredential, 'refreshToken' | 'projectId' | 'email'>): string {
   if (typeof credential.email === 'string' && credential.email.trim().length > 0) {
     const hash = createHash('sha256').update(credential.email.trim().toLowerCase()).digest('hex').slice(0, 12)
     return `acct:${hash}`
   }
-  if (typeof credential.projectId === 'string' && credential.projectId.length > 0) {
+  if (
+    typeof credential.projectId === 'string' &&
+    credential.projectId.length > 0 &&
+    !SHARED_PROJECT_IDS.has(credential.projectId)
+  ) {
     return `proj:${credential.projectId}`
   }
   const hash = createHash('sha256').update(credential.refreshToken).digest('hex').slice(0, 12)
@@ -127,8 +133,6 @@ function serializeVault(vault: CredentialVault): unknown {
   }
   return vault
 }
-
-const SHARED_PROJECT_IDS = new Set(['aicode-consumers', 'inductive-dreamer-qrkws'])
 
 function sameAccountIdentity(existing: GatewayAccountRecord, incoming: GatewayCredential): boolean {
   const existingEmail = existing.email?.trim().toLowerCase()
@@ -302,9 +306,12 @@ export class CredentialStore {
         await this.persistVault(existing)
         return updated
       }
-      let id = deriveAccountId(plain)
-      if (existing.accounts.some((a) => a.id === id)) {
-        id = `${id}-${existing.accounts.length + 1}`
+      const baseId = deriveAccountId(plain)
+      let id = baseId
+      let suffix = 2
+      while (existing.accounts.some((a) => a.id === id)) {
+        id = `${baseId}-${suffix}`
+        suffix += 1
       }
       const added: GatewayAccountRecord = { ...plain, id, addedAt: Date.now() }
       existing.accounts.push(added)

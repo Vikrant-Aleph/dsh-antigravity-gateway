@@ -10,11 +10,14 @@ Release notes on GitHub are extracted from the matching section below.
 
 ### Fixed
 
-- Multi-account deduplication and cache isolation when multiple consumer Google accounts share the `aicode-consumers` project ID: account identity and cache keys now prioritize normalized email (with `id_token` JWT email extraction fallback when `/userinfo` is unavailable) and never merge distinct accounts on shared project IDs.
+- Multi-account deduplication and cache isolation when multiple consumer Google accounts share the `aicode-consumers` project ID: account identity and cache keys now prioritize normalized email (with `id_token` JWT email extraction fallback when `/userinfo` is unavailable), skip shared project IDs in `deriveAccountId`, and never merge distinct accounts on shared project IDs.
+- Clearing `sharedQuotaState` in `client.js` upon full logout or `AUTH` errors so the composer quota indicator immediately reverts to `5h | --` without displaying stale account/quota details.
+- Per-account refresh generation isolation (`accountGenerations`) in `AuthManager` so switching accounts does not abort an unrelated concurrent token refresh.
 
 ### Changed
 
 - Settings **Account** tab visual hierarchy (`agw-panel-header`, active account spotlight card with avatar & metadata grid, styled account roster, and clean footer notes).
+- Composer quota indicator now falls back to `quota | XX%` when no `5h` bucket matches and supports closing the hover/focus popover with `Escape`.
 
 ### Added
 

@@ -72,7 +72,8 @@ if (archiveDir) {
     if (
       listing.includes('package/.npm-cache/') ||
       listing.includes('package/node_modules/') ||
-      listing.includes('package/docs/refactoring/')
+      listing.includes('package/docs/refactoring/') ||
+      listing.includes('package/docs/features/')
     ) {
       failures.push('archive contains development-only directories')
     }

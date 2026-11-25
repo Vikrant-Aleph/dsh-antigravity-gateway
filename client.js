@@ -598,6 +598,15 @@
       listeners: new Set(),
     };
 
+    /** Clear cached quota report (e.g. after logging out all accounts). */
+    function clearSharedQuota() {
+      sharedQuotaState.report = null;
+      sharedQuotaState.lastFetchedAt = 0;
+      for (const fn of Array.from(sharedQuotaState.listeners)) {
+        try { fn(); } catch (e) { /* ignore */ }
+      }
+    }
+
     /** @param {any} value */
     function publishSharedQuota(value) {
       if (value && Array.isArray(value.providers) && value.providers.length > 0) {
@@ -620,7 +629,15 @@
     async function fetchModelsReport(rpc, force) {
       if (!force && sharedQuotaState.inflight) return sharedQuotaState.inflight;
       const run = rpcCall(rpc, ACCOUNT_NS, 'models', force ? { force: true } : {}).then((res) => {
-        if (res.ok && res.value) publishSharedQuota(res.value);
+        if (res.ok && res.value) {
+          publishSharedQuota(res.value);
+        } else if (!res.ok) {
+          const code = res.error && res.error.code;
+          const msg = (res.error && res.error.message) || '';
+          if (code === 'AUTH' || code === 'MISSING_CREDENTIAL' || /login|signed in|credential/i.test(msg)) {
+            clearSharedQuota();
+          }
+        }
         return res;
       }).finally(() => {
         if (sharedQuotaState.inflight === run) sharedQuotaState.inflight = null;
@@ -668,6 +685,7 @@
           setStatus(null);
         } else {
           setStatus(result.value || {});
+          if (result.value && !result.value.loggedIn) clearSharedQuota();
           if (!silent) setError('');
         }
         if (!silent) setBusy('');
@@ -694,6 +712,9 @@
         } else {
           if (okKey) setNotice(t(okKey));
           if (endpoint === 'login') setNotice(t('loginStarted'));
+          if (endpoint === 'logout') {
+            if (!(result.value && result.value.activeAccountId)) clearSharedQuota();
+          }
           if (endpoint === 'switch' || endpoint === 'logout' || endpoint === 'import') {
             void fetchModelsReport(rpc, false);
           }
@@ -1064,7 +1085,8 @@
       const report = sharedQuotaState.report;
       const compact = selectCompactQuota(report, selection.model);
       const pct = compact ? Math.round(clampFraction(compact.remainingFraction) * 100) : null;
-      const chipText = pct !== null ? `5h | ${pct}%` : '5h | --';
+      const chipPrefix = compact && compact.window === 'model' ? 'quota' : '5h';
+      const chipText = pct !== null ? `${chipPrefix} | ${pct}%` : '5h | --';
       const tone = compact ? quotaTone(compact.remainingFraction) : 'is-out';
       const toneClass = tone === 'is-err' ? ' is-err' : tone === 'is-warn' ? ' is-warn' : '';
 
@@ -1142,6 +1164,7 @@
         className: `agw-composer-chip${toneClass}`,
         onFocus: openPopover,
         onBlur: scheduleClose,
+        onKeyDown: (/** @type {any} */ e) => { if (e && e.key === 'Escape') setOpen(false); },
         onClick: () => { if (rpc) void fetchModelsReport(rpc, true); },
         'aria-label': `${t('quotaTitle')}: ${chipText}`,
       }, chipText),

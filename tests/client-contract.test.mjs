@@ -278,11 +278,15 @@ test('client.js renders quota progress bars in Models tab, multi-account control
   const storeListeners = new Set()
 
   const futureIso = new Date(Date.now() + 2 * 3_600_000 + 15 * 60_000).toISOString()
+  let loggedInState = true
   const rpcCalls = []
   const fakeRpc = {
     async call(channel, method, payload) {
       rpcCalls.push([channel, method, payload])
       if (method === `${ACCOUNT_RPC_NAMESPACE}/models`) {
+        if (!loggedInState) {
+          return { ok: false, error: { code: 'AUTH', message: 'Antigravity login is required' } }
+        }
         return {
           ok: true,
           value: {
@@ -299,15 +303,29 @@ test('client.js renders quota progress bars in Models tab, multi-account control
                   { bucketId: 'claude-weekly', displayName: 'Weekly', window: 'weekly', remainingFraction: 0.62, resetTime: futureIso },
                 ],
               },
+              {
+                displayName: 'Gemini',
+                buckets: [
+                  { bucketId: 'gemini-5h', displayName: 'Five Hour', window: '5h', remainingFraction: 0.44, resetTime: futureIso },
+                ],
+              },
             ],
             available: [
               { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', efforts: ['low', 'medium', 'high'], contextWindow: 1_000_000, maxOutputTokens: 128_000, status: 'available', remainingFraction: 0.87, resetTime: futureIso },
+              { id: 'custom-model', name: 'Custom Model', efforts: [], contextWindow: 128_000, maxOutputTokens: 32_768, status: 'available', remainingFraction: 0.65 },
             ],
             unavailable: [],
           },
         }
       }
+      if (method === `${ACCOUNT_RPC_NAMESPACE}/logout`) {
+        loggedInState = false
+        return { ok: true, value: { loggedOut: true } }
+      }
       if (method === `${ACCOUNT_RPC_NAMESPACE}/status`) {
+        if (!loggedInState) {
+          return { ok: true, value: { loggedIn: false, backend: 'credentials-service', loginPending: false, accounts: [] } }
+        }
         return {
           ok: true,
           value: {
@@ -388,13 +406,30 @@ test('client.js renders quota progress bars in Models tab, multi-account control
   assert.doesNotMatch(popoverText, /quotaCurrentModel/)
   assert.doesNotMatch(popoverText, /Claude Sonnet 5\.5/)
   const bars = findElements(popovers[0], (n) => n.props?.role === 'progressbar')
-  assert.equal(bars.length, 2)
+  assert.equal(bars.length, 3)
+
+  // Escape closes hovered popover.
+  const chipBtn = findElements(treeHovered, (n) => n.type === 'button')[0]
+  chipBtn.props.onKeyDown({ key: 'Escape' })
+  const treeEscaped = renderComponent(composerEntry.comp, composerProps)
+  assert.equal(findElements(treeEscaped, (n) => String(n.props?.className || '').includes('agw-quota-popover')).length, 0)
+
+  // Non-5h model fallback (`custom-model` with 2 distinct 5h pools) shows `quota | 65%` instead of `5h |`.
+  currentSelection = { provider: 'antigravity-gateway', model: 'custom-model' }
+  for (const fn of storeListeners) fn()
+  const treeModelQuota = renderComponent(composerEntry.comp, composerProps)
+  assert.match(flattenText(treeModelQuota), /quota \| 65%/)
 
   // Non-owned provider model renders nothing (null).
   currentSelection = { provider: 'deepseek-account', model: 'deepseek-chat' }
   for (const fn of storeListeners) fn()
   const treeOther = renderComponent(composerEntry.comp, composerProps)
   assert.equal(treeOther, null)
+
+  // Switch back to owned model, then log out -> stale quota clears immediately to `5h | --`.
+  currentSelection = { provider: 'antigravity-gateway', model: 'claude-sonnet-5-5' }
+  for (const fn of storeListeners) fn()
+  renderComponent(composerEntry.comp, composerProps)
 
   // 2. Settings Panel renders Models progress bars & Account multi-account switcher.
   const settingsEntry = registeredSlots.get('settings.section')
@@ -420,13 +455,13 @@ test('client.js renders quota progress bars in Models tab, multi-account control
   await new Promise((r) => setTimeout(r, 15))
   const modelsTreeLoaded = renderComponent(modelsTabPanel.type, modelsTabPanel.props, 'ModelsPanel')
   const modelsBars = findElements(modelsTreeLoaded, (n) => n.props?.role === 'progressbar')
-  assert.equal(modelsBars.length, 2, 'ModelsPanel must render progress bars in quota summary cards only')
+  assert.equal(modelsBars.length, 3, 'ModelsPanel must render progress bars in quota summary cards only')
   assert.equal(modelsBars[0].props['aria-valuenow'], 87)
   const modelsText = flattenText(modelsTreeLoaded)
   assert.match(modelsText, /quotaResets/)
   assert.equal(findElements(modelsTreeLoaded, (n) => n.props?.className === 'agw-panel-header').length, 1)
   const windowLabels = findElements(modelsTreeLoaded, (n) => n.props?.className === 'agw-quota-window').map(flattenText)
-  assert.deepEqual(windowLabels, ['5h', 'weekly'])
+  assert.deepEqual(windowLabels, ['5h', 'weekly', '5h'])
   assert.equal(findElements(modelsTreeLoaded, (n) => n.props?.className === 'agw-model-id').length, 0)
   assert.equal(findElements(modelsTreeLoaded, (n) => String(n.props?.className || '').includes('agw-model-pct')).length, 0)
   assert.doesNotMatch(modelsText, /claude-sonnet-5-5/)
@@ -441,6 +476,18 @@ test('client.js renders quota progress bars in Models tab, multi-account control
   assert.match(chipCss, /line-height:\s*20px/)
   assert.match(chipCss, /font-weight:\s*600/)
   assert.match(chipCss, /height:\s*28px/)
+
+  // 5. Logout clears stale sharedQuotaState so ComposerQuotaBadge shows `5h | --` and no stale email.
+  const logoutBtn = findElements(accTreeLoaded, (n) => n.type === 'button' && flattenText(n) === 'logout')[0]
+  logoutBtn.props.onClick()
+  await new Promise((r) => setTimeout(r, 20))
+  const treeLoggedOut = renderComponent(composerEntry.comp, composerProps)
+  assert.match(flattenText(treeLoggedOut), /5h \| --/)
+  treeLoggedOut.props.onMouseEnter()
+  const treeLoggedOutHover = renderComponent(composerEntry.comp, composerProps)
+  const loggedOutPopover = findElements(treeLoggedOutHover, (n) => String(n.props?.className || '').includes('agw-quota-popover'))[0]
+  assert.doesNotMatch(flattenText(loggedOutPopover), /a1@example\.com/)
+  assert.match(flattenText(loggedOutPopover), /quotaNoData/)
 })
 
 test('client.js RPC channels, namespaces, and endpoints match src/shared/rpc-contracts.ts 100%', () => {
