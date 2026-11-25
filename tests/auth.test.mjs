@@ -149,3 +149,37 @@ test('getCredential decouples caller abort signals from shared single-flight tok
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('logout() during an in-flight refresh prevents stale credential write-back', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-auth-logout-race-'))
+  try {
+    const file = path.join(dir, 'cred.json')
+    fs.writeFileSync(file, JSON.stringify({ refreshToken: '1//r', accessToken: 'ya29.expired', expiresAt: 1 }))
+    const store = new CredentialStore({ file, logger: noopLogger })
+    const transport = new AgyTransport({})
+
+    let releaseRefresh
+    const refreshGate = new Promise((resolve) => {
+      releaseRefresh = resolve
+    })
+    const plainFetch = async () => {
+      await refreshGate
+      return new Response(JSON.stringify({ access_token: 'ya29.zombie', expires_in: 3600 }), { status: 200 })
+    }
+
+    const auth = new AuthManager({ store, transport, plainFetch, logger: noopLogger })
+    const pendingRefresh = auth.getCredential()
+    await new Promise((r) => setTimeout(r, 15))
+
+    await auth.logout()
+    releaseRefresh()
+
+    await assert.rejects(pendingRefresh, (err) => err.code === 'ABORTED')
+    assert.equal(await store.read(), undefined)
+    assert.equal(fs.existsSync(file), false)
+
+    await transport.close()
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

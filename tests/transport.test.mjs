@@ -70,6 +70,28 @@ test('readBoundedText reads and caps bodies', async () => {
   await assert.rejects(readBoundedText(sseResponse('hello world'), 5), (error) => error.code === 'INVALID_RESPONSE')
 })
 
+test('readBoundedText aborts immediately on a stalled body and cancels the reader', async () => {
+  const controller = new AbortController()
+  let cancelled = false
+  const stream = new ReadableStream({
+    start(c) {
+      c.enqueue(new TextEncoder().encode('partial'))
+    },
+    cancel() {
+      cancelled = true
+    },
+  })
+  const response = new Response(stream)
+  const started = Date.now()
+  setTimeout(() => controller.abort(), 20)
+  await assert.rejects(
+    readBoundedText(response, 1024, controller.signal),
+    (error) => error.code === 'ABORTED',
+  )
+  assert.ok(Date.now() - started < 500, 'readBoundedText must not hang after AbortSignal')
+  assert.equal(cancelled, true)
+})
+
 test('proxyFromEnv follows the lookup order and rejects non-http schemes', () => {
   assert.equal(proxyFromEnv({ HTTPS_PROXY: 'http://127.0.0.1:7890' }), 'http://127.0.0.1:7890')
   assert.equal(proxyFromEnv({ https_proxy: 'http://127.0.0.1:7891', ALL_PROXY: 'http://127.0.0.1:7892' }), 'http://127.0.0.1:7891')
@@ -227,6 +249,47 @@ test('transport reuses distinct direct/proxy dispatchers without leaking and clo
     assert.equal(closed.length, 2)
     if (prevNoProxy === undefined) delete process.env.NO_PROXY
     else process.env.NO_PROXY = prevNoProxy
+    resetSystemProxyCache()
+  }
+})
+
+test('transport evicts and closes oldest dispatcher when exceeding MAX_DISPATCHERS (4)', async () => {
+  resetSystemProxyCache()
+  const prevProxy = process.env.HTTPS_PROXY
+  const created = []
+  const closed = []
+  const transport = new AgyTransport({
+    useSystemProxy: false,
+    fetchImpl: async (_url, init) => {
+      const d = init?.dispatcher
+      if (d && !created.includes(d)) {
+        const origClose = d.close
+        d.close = (...args) => {
+          if (typeof args[0] !== 'function') closed.push(d)
+          return origClose.apply(d, args)
+        }
+        created.push(d)
+      }
+      return new Response('ok', { status: 200 })
+    },
+  })
+  try {
+    // Trigger 5 distinct keys: 1 direct + 4 distinct proxy URLs.
+    delete process.env.HTTPS_PROXY
+    await transport.request({ url: 'https://daily-cloudcode-pa.googleapis.com/0', accessToken: 't', body: '{}' })
+    for (let i = 1; i <= 4; i++) {
+      process.env.HTTPS_PROXY = `http://127.0.0.1:${10810 + i}`
+      await transport.request({ url: 'https://daily-cloudcode-pa.googleapis.com/' + i, accessToken: 't', body: '{}' })
+    }
+    // Wait a tick for async void oldest.close() to run.
+    await new Promise((r) => setTimeout(r, 15))
+    assert.equal(created.length, 5)
+    assert.equal(closed.length, 1, 'oldest dispatcher must be evicted and closed when pool exceeds 4')
+  } finally {
+    await transport.close()
+    assert.equal(closed.length, 5)
+    if (prevProxy === undefined) delete process.env.HTTPS_PROXY
+    else process.env.HTTPS_PROXY = prevProxy
     resetSystemProxyCache()
   }
 })

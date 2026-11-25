@@ -200,6 +200,24 @@ test('registerModelDiscovery reflects imageInput=false in inputModalities', asyn
   }
 })
 
+test('apply normalizes partial/empty config via Config schema defaults', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-index-empty-'))
+  const prevProfile = process.env.DSH_PROFILE_DIR
+  process.env.DSH_PROFILE_DIR = dir
+  try {
+    const host = createMockHostContext({ webServer: { host: '127.0.0.1' } })
+    assert.doesNotThrow(() => apply(host.ctx, {}))
+    assert.equal(host.registeredAdapters.length, 1)
+    assert.deepEqual(host.registeredAdapters[0].providers, ['antigravity-gateway'])
+    await new Promise((r) => setTimeout(r, 20))
+    await host.disposeAll()
+  } finally {
+    if (prevProfile === undefined) delete process.env.DSH_PROFILE_DIR
+    else process.env.DSH_PROFILE_DIR = prevProfile
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('apply cancels pending OAuth login and releases callback port on plugin unload', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-index-login-'))
   try {

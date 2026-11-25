@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import http from 'node:http'
+import net from 'node:net'
 import { buildAuthorizationUrl, exchangeCode, refreshAccessToken, startCallbackServer } from '../lib/core/oauth.js'
 import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_SCOPES } from '../lib/protocol/constants.js'
 
@@ -78,6 +80,32 @@ test('callback server reports Google-side cancellation', async () => {
     await fetch(`http://127.0.0.1:${server.port}/oauth-callback?error=access_denied`)
     await assert.rejects(server.completed, (error) => error.code === 'AUTH')
   } finally {
+    server.close()
+  }
+})
+
+test('callback server close() drops keep-alive connections and releases port immediately', async () => {
+  const server = await startCallbackServer({ state: 's2', verifier: 'v2' }, { port: 0, timeoutMs: 10_000 })
+  const agent = new http.Agent({ keepAlive: true })
+  const port = server.port
+  try {
+    await new Promise((resolve, reject) => {
+      const req = http.get(`http://127.0.0.1:${port}/favicon.ico`, { agent }, (res) => {
+        res.resume()
+        res.on('end', resolve)
+      })
+      req.on('error', reject)
+    })
+    server.close()
+    await new Promise((r) => setTimeout(r, 25))
+    const probe = net.createServer()
+    await new Promise((resolve, reject) => {
+      probe.once('error', reject)
+      probe.listen(port, '127.0.0.1', resolve)
+    })
+    await new Promise((resolve) => probe.close(resolve))
+  } finally {
+    agent.destroy()
     server.close()
   }
 })

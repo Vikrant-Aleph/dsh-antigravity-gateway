@@ -259,3 +259,41 @@ test('registerAccountAccess disposer removes all RPC routes and disposes the inj
   assert.equal(fake.routes.size, 0)
   assert.equal(fake.fiberDisposed, 1)
 })
+
+test('account RPC evaluates webServer loopback policy dynamically when webServer mounts late', async () => {
+  const { service, calls } = stubAccount()
+  let currentWebServer
+  const routes = new Map()
+  const ctx = {
+    get(name) { return name === 'webServer' ? currentWebServer : undefined },
+    inject(_names, callback) {
+      const child = {
+        get: (name) => (name === 'webServer' ? currentWebServer : undefined),
+        connection: {
+          fetch: {
+            register(route) {
+              routes.set(route.path, route)
+              return () => routes.delete(route.path)
+            },
+          },
+        },
+      }
+      const cleanup = callback(child)
+      return { dispose() { if (typeof cleanup === 'function') cleanup() } }
+    },
+  }
+  const dispose = registerAccountAccess(ctx, service, noopLogger)
+  try {
+    const okRes = await callRoute(routes, 'status')
+    assert.equal(okRes.ok, true)
+
+    // Host later starts a non-loopback WebServer; already-registered routes must fail closed.
+    currentWebServer = { host: '0.0.0.0' }
+    const blockedRes = await callRoute(routes, 'logout')
+    assert.equal(blockedRes.ok, false)
+    assert.equal(blockedRes.error.code, 'loopback-required')
+    assert.equal(calls.length, 0)
+  } finally {
+    dispose()
+  }
+})

@@ -216,6 +216,7 @@ export function startCallbackServer(
       options.signal?.removeEventListener('abort', onAbort)
       try {
         server.close()
+        server.closeAllConnections?.()
       } catch {
         // Already closed.
       }
@@ -223,6 +224,7 @@ export function startCallbackServer(
 
     server.once('error', (error) => {
       clearTimeout(timeout)
+      options.signal?.removeEventListener('abort', onAbort)
       rejectServer(new GatewayError(`Cannot bind the OAuth callback port: ${String(error)}`, 'TRANSPORT', { cause: error }))
     })
     server.listen(options.port, '127.0.0.1', () => {

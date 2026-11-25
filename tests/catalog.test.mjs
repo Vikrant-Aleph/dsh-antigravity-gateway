@@ -284,3 +284,38 @@ test('concurrent list() shares one probe and preserves agentModelSorts order acr
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('list() refresh after TTL expiry resets cachedFullReport so getAvailabilityReport refreshes quota', async () => {
+  let quotaCalls = 0
+  const auth = {
+    async status() { return { loggedIn: true, projectId: 'proj-ttl' } },
+    async getCredential() { return { refreshToken: '1//x', accessToken: 'ya29.x', expiresAt: Date.now() + 3_600_000, projectId: 'proj-ttl' } },
+    async getAccountTier() { return { current: { id: 'free-tier', name: 'Antigravity' } } },
+  }
+  const transport = {
+    async request({ url }) {
+      if (String(url).includes('fetchAvailableModels')) {
+        return new Response(JSON.stringify({ models: { 'gemini-4-hydrogen-high': {} } }), { status: 200 })
+      }
+      if (String(url).includes('retrieveUserQuotaSummary')) {
+        quotaCalls += 1
+        return new Response(JSON.stringify({
+          groups: [{ displayName: 'Gemini', buckets: [{ bucketId: 'g', displayName: '5h', remainingFraction: quotaCalls === 1 ? 0.8 : 0.4 }] }],
+        }), { status: 200 })
+      }
+      throw new Error(`unexpected ${url}`)
+    },
+  }
+  const catalog = new ModelCatalog(auth, transport, { ttlMs: 25 })
+  const r1 = await catalog.getAvailabilityReport()
+  assert.equal(r1.quotaGroups[0].buckets[0].remainingFraction, 0.8)
+
+  // Wait past the 25ms TTL, then refresh via list() (non-full).
+  await new Promise((r) => setTimeout(r, 40))
+  await catalog.list()
+
+  // Calling getAvailabilityReport() within the new TTL window must fetch fresh quota instead of serving stale cachedFullReport.
+  const r2 = await catalog.getAvailabilityReport()
+  assert.equal(quotaCalls, 2)
+  assert.equal(r2.quotaGroups[0].buckets[0].remainingFraction, 0.4)
+})

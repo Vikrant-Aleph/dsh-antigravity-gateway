@@ -1,12 +1,12 @@
 # Refactoring Progress
 
 ## Current State
-- 当前阶段：Phase 5（全部完成）
-- 授权状态：方案已批准并已完成 Phase 0–5 全部可执行重构任务（等待维护者审阅合并及真实环境人工 E2E 核验）
-- 当前任务：已完成（[REPORT.md](REPORT.md) 已交付）
+- 当前阶段：审查问题修复阶段已完成（`FIX-001`~`FIX-009` 全部闭环，等待独立复审）
+- 授权状态：方案已批准并已完成 Phase 0–5 及审查问题修复（[FIXES.md](FIXES.md)）
+- 当前任务：等待独立复审（[REPORT.md](REPORT.md) 与 [FIXES.md](FIXES.md) 已交付）
 - 基准提交：`aedfa19f7bafd5f6a70c40a00c57b4f7fc5536f8`
 - 当前分支与 HEAD：`refactor/modular-architecture`
-- 最近更新时间：2026-11-26 02:20 +08:00
+- 最近更新时间：2026-11-26 02:35 +08:00
 
 ## Task List
 | ID | 任务 | 依赖 | 状态 | 验证证据 / 阻塞原因 |
@@ -43,7 +43,6 @@
 - `P0-003`：运行并记录全部基线验证命令（见 Verification Results）。
 - `P0-004`：创建根目录 `AGENTS.md`、`docs/refactoring/DECISIONS.md`、`docs/refactoring/PROGRESS.md`。
 - `P1-001`：完成 `docs/refactoring/AUDIT.md`。
-- `P1-003`：向用户汇报审计与方案；用户于 2026-11-26 正式批准 `PLAN.md` 与 `D-001`~`D-006`，已切换至独立重构分支 `refactor/modular-architecture`。
 - `P1-002`：完成 `docs/refactoring/PLAN.md`。
 - `P1-003`：向用户汇报审计与方案；用户于 2026-11-26 正式批准 `PLAN.md` 与 `D-001`~`D-006`，已切换至独立重构分支 `refactor/modular-architecture`。
 - `P2-001`：修复 `package.json`（新增 `test:only: node --test "tests/*.test.mjs"`，`test` 改为 `npm run build && npm run test:only`），补齐 4 个 0 覆盖模块特征测试 `tests/{prompt-compat,commands,log-service,index}.test.mjs`，全量 119/119 离线测试通过。
@@ -57,31 +56,24 @@
 - `P3-003`：`registerModelDiscovery` 与 `adapter` 统一随 `imageInput` 收口 `inputModalities`；`dumpRequestsTo` 改异步 `appendFile`；补充 `imageInput: false`、503 容量退避恢复、流内错误/空响应、多轮工具+签名回放集成测试；`npm run typecheck` 与 `npm test`（134/134，548ms）通过。
 - `P3-004`：为 `client.js` 增加 `// @ts-check` + JSDoc（新增 `tsconfig.client.json` 与 `typecheck:client` 纳入 `npm run typecheck`）、`<style id="agw-styles">` 引用计数去重、`LogPanel` 对齐 `loopback-required` 提示，并新增 `tests/client-contract.test.mjs` 校验加载安全性与 `src/shared/rpc-contracts.ts` 100% 一致；`npm run typecheck` 与 `npm test`（137/137）通过。
 - `P4-001`~`P4-005`：统一 `npm run verify` 门禁并将 `package.json#files` 的 `docs` 精确为 `docs/DETAIL.md`；加固 `ci.yml`/`release.yml` 与 `release-check.mjs`；新增 `.editorconfig`、Issue/PR 模板、`CONTRIBUTING.md`、`SECURITY.md`；按 `D-005` 同步 `TECHNICAL*.md`/`README*.md`（修复失效 `../` 链接、同步 137 测试与 3 类维护 Playbooks）并收敛 `AGENTS.md`。
-- `P5-001`~`P5-003`：全量运行 `npm run verify`（137/137 pass）、`npm run pack:local` 与 `release-check.mjs --tag v0.1.0 --archive-dir .`（顺带修复 Windows `tar` CRLF 行尾导致 `split('\n')` 误报的问题，已清理临时 `.tgz`）；完成基线兼容与安全红线核查，交付 `docs/refactoring/REPORT.md` 并收敛 `AGENTS.md` 为常驻开发指南。
+- `P5-001`~`P5-003`：全量运行 `npm run verify`、`npm run pack:local` 与 `release-check.mjs --tag v0.1.0 --archive-dir .`，交付 `docs/refactoring/REPORT.md` 并收敛 `AGENTS.md` 为常驻开发指南。
+- `FIX-001`~`FIX-009`：核实并修复独立审查 [REVIEW.md](REVIEW.md) 指出的全部问题（`client.js` `slots.register` `this` 绑定、`resolveGatewayConfig` 真实应用 `Config` 默认值、`ModelCatalog` TTL 刷新重置 `cachedFullReport`、`readBoundedText` abort 竞态、`startCallbackServer` `closeAllConnections`、`AuthManager` `authGeneration` 竞态防写回、`rpc.ts` 动态 `webServer` 守卫、4 项边界测试以及文档/脚本修正），全量验证 `npm run verify`（18 文件 / 145 用例）通过。
 
 ## Work in Progress
-- `P1-003`：等待向用户汇报审计结论、目标架构、实施计划及 `D-001`~`D-006` 决策确认。
+- 无进行中代码任务，等待独立复审。
 
 ## Verification Results
 | 命令 | 执行时间 | 退出码 / 结果 | 关键输出摘要（脱敏） |
 |---|---|---|---|
-| `npm run typecheck` | 2026-11-26 00:46 +08:00 | 退出码 `0`（~1.58s） | `tsc -p tsconfig.json --noEmit` 零报错通过 |
-| `npm run build` | 2026-11-26 00:46 +08:00 | 退出码 `0`（~1.61s） | 清理 `lib/` 并完成 `tsc` 编译 |
-| `npm test`（Windows 受限沙箱） | 2026-11-26 00:46 +08:00 | 退出码 `1`（环境限制） | `node --test tests/*.test.mjs` 默认以 piped stdio 派生子进程，被 Windows 沙箱拦截报 11×`spawn EPERM` |
-| `npm test`（完整权限） | 2026-11-26 00:53 +08:00 | 退出码 `0`（~5.31s） | 11 个文件 / **106** 个离线测试全部通过（其中 `iterateSse stops on abort` 耗时 5007ms，揭示 abort 挂起 bug） |
-| `node scripts/release-check.mjs --tag v0.1.0` | 2026-11-26 00:55 +08:00 | 退出码 `0` | `release-check: v0.1.0 identity verified` |
+| `npm run verify`（`typecheck:ts` + `typecheck:client` + `build` + `test:only`） | 2026-11-26 02:35 +08:00 | 退出码 `0`（测试 ~505ms） | **18 个文件 / 145 个离线测试全部通过**，TS 与 `client.js` 零类型错误 |
+| `npm run pack:local` + `node scripts/release-check.mjs --tag v0.1.0 --archive-dir .` | 2026-11-26 02:35 +08:00 | 退出码 `0` | 打包 `.tgz` 校验通过（不含 `.npm-cache/`、`node_modules/`、`docs/refactoring/`），临时 `.tgz` 已清理 |
 
 ## Known Issues and Blockers
-- **门禁阻断（按流程设计）**：当前授权仅限 Phase 0 与 Phase 1，必须等用户明确批准 `PLAN.md` 与 `DECISIONS.md` 后才能启动 Phase 2。
-- **环境说明**：在 DSH Windows `workspace-write` 沙箱内运行 `node --test` 默认进程隔离模式会触发 `spawn EPERM`（因为底层禁止捕获子进程 piped stdio）；需以完整权限执行 `npm test`（或在不依赖 `spawn` 的情况下评估 `--test-isolation=none` 作为本地受限环境辅助命令，CI 中仍保持标准 `node --test`）。
+- **环境说明**：在受限 Windows `workspace-write` 沙箱内运行 `node --test` 默认进程隔离模式会触发 `spawn EPERM`（因为底层禁止捕获子进程 piped stdio）；CI（Ubuntu/Windows 标准 runner）及常规终端环境下运行正常。
+- **待人工核验项**：真实 Google 上游接口及真实 DSH Desktop 环境运行时加载/UI 交互需人工按 [REPORT.md §6.2](REPORT.md) 核验。
 
 ## Pending Decisions
-- `D-001`：历史 `Bridge*` 命名与 `src/index.ts` 导出收口
-- `D-002`：日志 RPC (`/api/antigravity-gateway-logs/*`) 安全策略
-- `D-003`：`client.js` 长期维护形态
-- `D-004`：多账号能力扩展边界
-- `D-005`：架构与技术文档布局（避免双份维护）
-- `D-006`：`iterateSse` 在流挂起时忽略 `AbortSignal` 缺陷修复
+- 无待决项（`D-001`~`D-007` 已全部确认并落地）。
 
 ## Next Actions
 1. 由维护者在真实 DSH Desktop 环境中执行 [REPORT.md §6.2](REPORT.md) 列出的 6 项人工 E2E 核验。

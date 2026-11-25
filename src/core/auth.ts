@@ -63,6 +63,7 @@ export class AuthManager {
   private readonly logger: GatewayLogger
   private readonly endpoints: readonly string[]
   private refreshInFlight: Promise<GatewayCredential> | undefined
+  private authGeneration = 0
   private pendingLogin: { server: CallbackServer; controller: AbortController; done: Promise<{ email?: string; projectId?: string }> } | undefined
   private pendingUrl: string | undefined
   private lastLoginError: string | undefined
@@ -112,19 +113,26 @@ export class AuthManager {
       return stored
     }
     if (!this.refreshInFlight) {
-      this.refreshInFlight = this.refresh(stored).finally(() => {
-        this.refreshInFlight = undefined
+      const gen = this.authGeneration
+      const flight = this.refresh(stored, gen).finally(() => {
+        if (this.refreshInFlight === flight) {
+          this.refreshInFlight = undefined
+        }
       })
+      this.refreshInFlight = flight
     }
     return raceWithAbort(this.refreshInFlight, signal)
   }
 
-  private async refresh(stored: GatewayCredential): Promise<GatewayCredential> {
+  private async refresh(stored: GatewayCredential, gen: number): Promise<GatewayCredential> {
     this.logger.debug('auth', 'refreshing access token')
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(new Error('token refresh timeout')), 30_000)
     try {
       const tokens = await refreshAccessToken(this.plainFetch, stored.refreshToken, controller.signal)
+      if (this.authGeneration !== gen) {
+        throw new GatewayError('Authentication state changed during token refresh', 'ABORTED')
+      }
       const next: GatewayCredential = {
         ...stored,
         accessToken: tokens.accessToken,
@@ -180,6 +188,8 @@ export class AuthManager {
           ...(projectId ? { projectId } : {}),
           ...(email ? { email } : {}),
         }
+        this.authGeneration += 1
+        this.refreshInFlight = undefined
         await this.store.write(credential)
         this.logger.info('auth', 'sign-in complete', { projectId: projectId || '(none)', email: email ? 'present' : 'unknown' })
         return { ...(email ? { email } : {}), ...(projectId ? { projectId } : {}) }
@@ -217,6 +227,8 @@ export class AuthManager {
   }
 
   async logout(): Promise<void> {
+    this.authGeneration += 1
+    this.refreshInFlight = undefined
     this.cancelLogin()
     this.cachedTier = undefined
     await this.store.delete()
@@ -267,6 +279,8 @@ export class AuthManager {
       ...(projectId ? { projectId } : {}),
       ...(email ? { email } : {}),
     }
+    this.authGeneration += 1
+    this.refreshInFlight = undefined
     await this.store.write(credential)
     this.cachedTier = undefined
     this.logger.info('auth', 'imported account from dsh-antigravity-auth', { projectId: projectId || '(none)' })

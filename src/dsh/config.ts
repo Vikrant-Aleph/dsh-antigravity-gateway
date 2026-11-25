@@ -44,15 +44,22 @@ export const Config = Schema.object({
   /** Fallback credential file when the host has no credentials service. */
   credentialFile: Schema.string().default(''),
   /** Diagnostic: append every outgoing request envelope to this file. Never enable by default. */
-  dumpRequestsTo: Schema.string(),
+  dumpRequestsTo: Schema.string().required(false),
 })
 
-export type GatewayConfig = Schemastery.TypeT<typeof Config>
+type SchemaConfig = Schemastery.TypeT<typeof Config>
+type KnownSchemaConfig = {
+  [K in keyof SchemaConfig as string extends K ? never : K]: SchemaConfig[K]
+}
+
+export type GatewayConfig = Omit<KnownSchemaConfig, 'dumpRequestsTo'> & {
+  dumpRequestsTo?: string
+}
 
 export function normalizeLogLevel(value: unknown): LogLevel {
   return (LOG_LEVELS as readonly string[]).includes(String(value)) ? (value as LogLevel) : 'info'
 }
 
-export function resolveGatewayConfig(raw: Record<string, unknown>): GatewayConfig {
-  return raw as GatewayConfig
+export function resolveGatewayConfig(raw: Record<string, unknown> = {}): GatewayConfig {
+  return Config(raw) as GatewayConfig
 }

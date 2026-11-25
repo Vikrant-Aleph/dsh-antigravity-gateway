@@ -12,7 +12,9 @@
 本次系统性重构在 **100% 保留原有线缆协议、DSH 插件契约、凭据/配置数据格式及现有功能** 的前提下，将原扁平堆放的 17 个 `src/*.ts`（约 5,256 行）重构为四层单向依赖架构（`shared` ← `protocol` ← `core` ← `dsh` ← `index`），修复了审计确认的全部 P0/P1/P2 缺陷（含审计新发现的 `iterateSse` 中止挂起 3 分钟问题与 `release-check.mjs` 在 Windows `tar` CRLF 下的兼容问题），补齐了全部 0 覆盖模块的离线测试与架构/契约守卫测试，并完善了工具链、CI/CD、GitHub 开源协作配置与双语维护文档。
 
 - **计划任务完成度**：Phase 0 ~ Phase 5 共 23 项任务（`P0-001`~`P5-003`）**全部 `DONE`**，无 `BLOCKED` 或 `DEFERRED` 项。
-- **验证规模跃升**：离线测试由基线 **11 文件 / 106 用例（耗时 ~5,313ms）** 提升至 **17 文件 / 137 用例（全量通过，耗时 ~444ms）**；新增严格 `client.js` 类型检查（`tsconfig.client.json`）与本地 `npm pack` + `release-check.mjs` 跨平台产物校验。
+- **验证规模跃升**：离线测试由基线 **11 文件 / 106 用例（耗时 ~5,313ms）** 提升至 **18 文件 / 145 用例（经独立审查修复后全量通过，耗时 ~505ms）**；新增严格 `client.js` 类型检查（`tsconfig.client.json`）与本地 `npm pack` + `release-check.mjs` 跨平台产物校验。
+
+> **独立审查修复记录**：[REVIEW.md](REVIEW.md) 提出的 `P1-01` 与 `P2-01`~`P2-08` 已全部核实并记录于 [FIXES.md](FIXES.md)（`FIX-001`~`FIX-009` 全部闭环，测试覆盖由 137 项增至 **145 项**）。
 
 ---
 
@@ -76,7 +78,7 @@
 |---|---|---|---|
 | 类型检查（TS + client.js） | `npm run typecheck` | Windows 11 · Node `v24.18.0` | `0`（`tsconfig.json` + `tsconfig.client.json` 零报错） |
 | 清理并编译 | `npm run build` | Windows 11 · Node `v24.18.0` | `0`（输出 `lib/`） |
-| 全量离线测试 | `npm test` / `npm run verify` | Windows 11 · Node `v24.18.0` | `0`（**17 文件 / 137 用例全部通过**，总耗时 ~444ms） |
+| 全量离线测试 | `npm test` / `npm run verify` | Windows 11 · Node `v24.18.0` | `0`（**18 文件 / 145 用例全部通过**，总耗时 ~505ms） |
 | 本地打包与发布身份校验 | `npm run pack:local` + `node scripts/release-check.mjs --tag v0.1.0 --archive-dir .` | Windows 11 · Node `v24.18.0` | `0`（生成 `156.9 kB` / 133 文件的 `.tgz`，`release-check: v0.1.0 identity verified`，随后已清理临时 `.tgz`） |
 
 ---

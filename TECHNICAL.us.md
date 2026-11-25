@@ -417,7 +417,8 @@ port), keeping browser, Google, and the token exchange in agreement.
 | Abort | ABORTED | terminal finish(aborted) |
 
 The adapter never re-runs successful requests; DSH's dsh-llm-retry executes
-retry policy at agent-step boundaries. BridgeError → LlmError code mapping:
+retry policy at agent-step boundaries. GatewayError → LlmError code mapping
+(with `@deprecated BridgeError` alias in 0.x):
 INVALID_MODEL→UNKNOWN_MODEL, PROTOCOL_DRIFT→MALFORMED_RESPONSE,
 CANCELLED→ABORTED; the rest pass through unchanged.
 
@@ -463,7 +464,7 @@ Dual access: the `antigravity_gateway_log` tool and
 ## 10. Testing, releases, playbooks, and troubleshooting
 
 Offline verification (`npm run verify`: `typecheck:ts` + `typecheck:client` +
-`build` + 137 `node:test` cases) never calls Google:
+`build` + 145 `node:test` cases) never calls Google:
 - **Unit & protocol layers**: models/payload/schema/response/catalog-parser/transport/proxy/logger/atomic-writes/commands/prompt-compat.
 - **Architecture & contract guards**: [architecture.test.mjs](tests/architecture.test.mjs) enforces the four-layer unidirectional boundaries and cycle freedom; [client-contract.test.mjs](tests/client-contract.test.mjs) verifies `client.js` load safety, `#agw-styles` deduplication, and 100% alignment with `rpc-contracts.ts`.
 - **End-to-end integration (local fake server)**: text, parallel same-name tool calls, 401 refresh replay, 404 disabled-reason diagnosis, 429, 503 capacity backoff recovery, in-stream error/empty response, multi-turn thinking-signature replay, and plugin unload releasing the OAuth callback port & RPC routes.

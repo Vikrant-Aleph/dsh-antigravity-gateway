@@ -696,18 +696,24 @@
           const slots = ctx.slots;
           if (slots && typeof slots.inject === 'function' && typeof slots.register === 'function') {
             const registerSlot = slots.register;
-            slots.inject('settings.section', () =>
-              registerSlot(
-                {
-                  name: 'settings.section',
-                  id: 'antigravity-gateway',
-                  order: 31,
-                  label: () => t('nav'),
-                  inject: () => ({ rpc, t }),
-                },
-                GatewayPanel,
-              ),
-            );
+            slots.inject('settings.section', () => {
+              try {
+                return registerSlot.call(
+                  slots,
+                  {
+                    name: 'settings.section',
+                    id: 'antigravity-gateway',
+                    order: 31,
+                    label: () => t('nav'),
+                    inject: () => ({ rpc, t }),
+                  },
+                  GatewayPanel,
+                );
+              } catch (e) {
+                console.error('[dsh-antigravity-gateway] settings slot callback failed:', e);
+                return undefined;
+              }
+            });
           } else {
             console.error('[dsh-antigravity-gateway] slots service unavailable; settings page not registered');
           }

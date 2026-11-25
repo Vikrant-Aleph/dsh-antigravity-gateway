@@ -47,7 +47,15 @@ async function startServer(handler) {
   })
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   const url = `http://127.0.0.1:${server.address().port}`
-  return { url, requests, close: () => new Promise((resolve) => server.close(resolve)) }
+  return {
+    url,
+    requests,
+    close: () =>
+      new Promise((resolve) => {
+        server.close(resolve)
+        server.closeAllConnections?.()
+      }),
+  }
 }
 
 function defaultHandler(record, res) {
@@ -618,5 +626,76 @@ test('multi-turn tool call + tool result + replayState preserves signatures and 
     assert.deepEqual(secondEnv.request.contents[2].parts[0].functionResponse, { name: 'read_file', response: { result: 'file body' } })
   } finally {
     await cleanup()
+  }
+})
+
+test('mid-stream abort exits immediately, post-emit stream error does not retry, and dumpRequestsTo writes JSONL', async () => {
+  // 1. Mid-stream abort exits immediately without hanging idleTimeoutMs.
+  {
+    const controller = new AbortController()
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agb-midabort-'))
+    const file = path.join(dir, 'credential.json')
+    const dumpFile = path.join(dir, 'dump.jsonl')
+    fs.writeFileSync(file, JSON.stringify({ refreshToken: '1//r', accessToken: 'ya29.i', expiresAt: Date.now() + 3_600_000 }))
+    const server = await startServer((record, res) => {
+      if (record.url.startsWith('/v1internal:streamGenerateContent')) {
+        res.writeHead(200, SSE_HEADERS)
+        res.write(`data: ${JSON.stringify(TEXT_EVENTS[0])}\n\n`)
+        setTimeout(() => controller.abort(), 20)
+        return
+      }
+      defaultHandler(record, res)
+    })
+    const store = new CredentialStore({ file })
+    const transport = new AgyTransport({ requestTimeoutMs: 10_000, idleTimeoutMs: 5000 })
+    const auth = new AuthManager({ store, transport, logger: noopLogger, endpoints: [server.url] })
+    const catalog = new ModelCatalog(auth, transport, { ttlMs: 0, endpoints: [server.url], logger: noopLogger })
+    const adapter = new AntigravityGatewayAdapter({
+      providers: ['antigravity-gateway'],
+      auth,
+      catalog,
+      transport,
+      endpoints: [server.url],
+      logger: noopLogger,
+      dumpRequestsTo: dumpFile,
+    })
+    const started = Date.now()
+    try {
+      await assert.rejects(
+        collect(adapter.stream(userRequest('claude-opus-4-6-thinking', { signal: controller.signal }))),
+        (err) => err.code === 'ABORTED',
+      )
+      assert.ok(Date.now() - started < 1000, 'mid-stream abort must not wait idleTimeoutMs')
+      const dumped = fs.readFileSync(dumpFile, 'utf8').trim().split('\n')
+      assert.equal(dumped.length, 1)
+      assert.equal(JSON.parse(dumped[0]).model, 'claude-opus-4-6-thinking')
+    } finally {
+      server.closeAllConnections?.()
+      await server.close()
+      await transport.close()
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  // 2. Error thrown AFTER partial block emission must NOT retry even on AUTH error.
+  {
+    let streamRequests = 0
+    const handler = (record, res) => {
+      if (record.url.startsWith('/v1internal:streamGenerateContent')) {
+        streamRequests += 1
+        res.writeHead(200, SSE_HEADERS)
+        res.write(`data: ${JSON.stringify(TEXT_EVENTS[0])}\n\n`)
+        res.end('data: {not-valid-json}\n\n')
+        return
+      }
+      defaultHandler(record, res)
+    }
+    const { adapter, cleanup } = await setup(handler)
+    try {
+      await assert.rejects(collect(adapter.stream(userRequest('claude-opus-4-6-thinking'))), (err) => err.code === 'MALFORMED_RESPONSE')
+      assert.equal(streamRequests, 1)
+    } finally {
+      await cleanup()
+    }
   }
 })

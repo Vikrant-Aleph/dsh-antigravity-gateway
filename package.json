@@ -34,7 +34,7 @@
     "test": "npm run build && npm run test:only",
     "verify": "npm run typecheck && npm test",
     "prepack": "npm run build",
-    "pack:local": "npm run build && npm pack"
+    "pack:local": "npm pack"
   },
   "exports": {
     ".": {

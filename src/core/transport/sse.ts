@@ -2,6 +2,7 @@
  * SSE stream iteration, bounded text body reading, and response cancellation.
  */
 import { GatewayError } from '../../shared/errors.js'
+import { raceWithAbort } from '../../shared/guards.js'
 
 const DEFAULT_IDLE_TIMEOUT_MS = 180_000
 
@@ -16,14 +17,18 @@ export async function cancelResponse(response: Response): Promise<void> {
 
 /** Read a bounded JSON/text body from a non-streaming response. */
 export async function readBoundedText(response: Response, maxBytes: number, signal?: AbortSignal): Promise<string> {
+  if (signal?.aborted) throw new GatewayError('The Antigravity response read was cancelled', 'ABORTED')
   const reader = response.body?.getReader()
   if (!reader) return ''
   const chunks: Uint8Array[] = []
   let total = 0
   try {
     for (;;) {
-      if (signal?.aborted) throw new GatewayError('The Antigravity response read was cancelled', 'ABORTED')
-      const { done, value } = await reader.read()
+      const { done, value } = await raceWithAbort(
+        reader.read(),
+        signal,
+        'The Antigravity response read was cancelled',
+      )
       if (done) break
       if (value) {
         total += value.byteLength
@@ -33,6 +38,13 @@ export async function readBoundedText(response: Response, maxBytes: number, sign
         chunks.push(value)
       }
     }
+  } catch (error) {
+    try {
+      await reader.cancel()
+    } catch {
+      // Already closed or cancelled.
+    }
+    throw error
   } finally {
     try {
       reader.releaseLock()

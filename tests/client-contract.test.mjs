@@ -121,6 +121,21 @@ test('client.js registers package id and apply() never throws even with missing 
     },
   }
   assert.doesNotThrow(() => plugin.apply(hostileCtx))
+
+  // Deferred slots.inject callback throwing later must also be contained.
+  let deferred
+  const deferredCtx = {
+    slots: {
+      inject(_slotName, fn) {
+        deferred = fn
+      },
+      register() {
+        throw new Error('deferred register boom')
+      },
+    },
+  }
+  assert.doesNotThrow(() => plugin.apply(deferredCtx))
+  assert.doesNotThrow(() => deferred())
 })
 
 test('client.js registers settings.section slot, deduplicates #agw-styles, and cleans up on unmount', () => {
@@ -149,6 +164,7 @@ test('client.js registers settings.section slot, deduplicates #agw-styles, and c
         fn()
       },
       register(def, component) {
+        assert.equal(this, ctx.slots, 'slots.register must preserve slots as its `this` receiver')
         registeredDef = def
         PanelComponent = component
         return () => {}

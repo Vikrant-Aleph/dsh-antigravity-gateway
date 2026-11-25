@@ -317,7 +317,7 @@ export class ModelCatalog {
         this.cachedQuotaGroups = quotaGroups
         this.cachedFullReport = true
       }
-    } else if (force && this.generation === gen) {
+    } else if (this.generation === gen) {
       this.cachedFullReport = false
     }
 

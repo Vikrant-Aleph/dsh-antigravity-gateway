@@ -46,13 +46,13 @@ export function registerRpcNamespace<E extends string>(
   const fiber = ctx.inject(['connection'], (ctxWithConnection) => {
     const connection = ctxWithConnection.connection
     if (!connection?.fetch?.register) return () => {}
-    const webServer = ctxWithConnection.get?.('webServer') as WebServerLike | undefined
-    const mode = options.requireLoopback ? accountModeFor(webServer) : 'enabled'
-    if (mode === 'blocked') {
+    const initialWebServer = ctxWithConnection.get?.('webServer') as WebServerLike | undefined
+    const initialMode = options.requireLoopback ? accountModeFor(initialWebServer) : 'enabled'
+    if (initialMode === 'blocked') {
       logger.warn(
         options.blockedLogScope ?? 'rpc',
         options.blockedLogMessage ?? `${options.namespace} RPC blocked: WebServer is not loopback-bound`,
-        { host: webServer?.host ?? '(unknown)' },
+        { host: initialWebServer?.host ?? '(unknown)' },
       )
     }
 
@@ -77,6 +77,9 @@ export function registerRpcNamespace<E extends string>(
           if (method !== `${options.namespace}/${endpoint}`) {
             return failure('bad-request', `${options.namespace} request method does not match its endpoint`)
           }
+          const mode = options.requireLoopback
+            ? accountModeFor(ctxWithConnection.get?.('webServer') as WebServerLike | undefined)
+            : 'enabled'
           if (mode === 'blocked') {
             return failure('loopback-required', LOOPBACK_REQUIRED_MESSAGE)
           }
