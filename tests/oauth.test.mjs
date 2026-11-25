@@ -180,9 +180,11 @@ test('resolveOAuthClient decodes default public client and honors paired env ove
   }
 })
 
-test('source, build artifacts, tests, and docs contain zero plaintext OAuth client literals', () => {
+test('source, build artifacts, tests, and docs contain zero plaintext or single-segment Base64 OAuth client literals', () => {
   const secretMarker = `${'GOCSPX'}-`
   const clientIdMarker = `${'tmhssin2h21lcre235vtolojh4g403ep'}.apps.googleusercontent.com`
+  const secretB64Prefix = Buffer.from(ANTIGRAVITY_CLIENT_SECRET, 'utf8').toString('base64').slice(0, 16)
+  const clientIdB64Prefix = Buffer.from(ANTIGRAVITY_CLIENT_ID, 'utf8').toString('base64').slice(0, 16)
   const dirs = ['src', 'lib', 'tests', 'docs']
   const files = ['client.js', 'README.md', 'README.us.md', 'TECHNICAL.md', 'TECHNICAL.us.md', 'CHANGELOG.md']
 
@@ -201,5 +203,7 @@ test('source, build artifacts, tests, and docs contain zero plaintext OAuth clie
     const content = fs.readFileSync(file, 'utf8')
     assert.ok(!content.includes(secretMarker), `plaintext OAuth secret marker leaked in ${file}`)
     assert.ok(!content.includes(clientIdMarker), `plaintext OAuth client ID marker leaked in ${file}`)
+    assert.ok(!content.includes(secretB64Prefix), `Base64 OAuth secret literal leaked in ${file}`)
+    assert.ok(!content.includes(clientIdB64Prefix), `Base64 OAuth client ID literal leaked in ${file}`)
   }
 })

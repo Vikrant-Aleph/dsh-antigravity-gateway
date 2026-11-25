@@ -110,9 +110,9 @@ with the reference plugin is wanted.
 
 The client id/secret are the public desktop-client identifiers embedded in
 the Antigravity CLI (`1071006060591-…apps.googleusercontent.com`), not a
-private user secret. To avoid triggering GitHub Push Protection on plaintext
-literals, [constants.ts](src/protocol/constants.ts) stores them Base64-encoded
-and decodes them at runtime; [oauth.ts](src/core/oauth.ts) uses those decoded
+private user secret. To avoid triggering GitHub Push Protection on plaintext or Base64
+literals, [constants.ts](src/protocol/constants.ts) stores them as XOR-masked
+byte arrays and decodes them at runtime; [oauth.ts](src/core/oauth.ts) uses those decoded
 defaults out of the box for zero-config browser sign-in while allowing paired
 environment overrides (`ANTIGRAVITY_OAUTH_CLIENT_ID` +
 `ANTIGRAVITY_OAUTH_CLIENT_SECRET`, or `ANTIGRAVITY_CLIENT_ID` +

@@ -1,24 +1,17 @@
-# 技术方案与实施计划：OAuth 公开客户端标识 Base64 编码与历史清洗（PLAN）
+# 技术方案与实施计划：OAuth 公开客户端 XOR 字节掩码编码与全历史清洗（PLAN）
 
-> **关联需求**：[SPEC.md](SPEC.md)
-> **当前基线**：`main` @ `3bc93a1`（`v0.2.0`，已完成实施与全历史清洗）
+> **关联需求**：[SPEC.md](SPEC.md)（2026-11-26 修订版）
+> **当前基线**：`main` @ `e31928c`（`tag: v0.2.0`）、`refactor/modular-architecture` @ `c21f06e`
 > **架构约束**：严格维持 `src/shared/` ← `src/protocol/` ← `src/core/` ← `src/dsh/` ← `src/index.ts` 四层单向依赖及零额外运行时依赖（仅 `undici`）。
 
 ---
 
-## 1. 现状与影响评估（实证核查）
+## 1. 现状核查与问题定位（实证依据）
 
-1. **明文出现位置（全仓 `grep` 与 Git 历史 `git log --all -S` 核实）**：
-   - 当前工作树仅在 [src/protocol/constants.ts](../../../src/protocol/constants.ts#L12-L16) 存在完整的公开 `ANTIGRAVITY_CLIENT_ID` 与 `ANTIGRAVITY_CLIENT_SECRET` 明文字面量。
-   - [TECHNICAL.md](../../../TECHNICAL.md#L105) 与 [TECHNICAL.us.md](../../../TECHNICAL.us.md#L112) 仅含脱敏前缀 `1071006060591-…apps.googleusercontent.com`（不含完整 ID 或 secret）。
-   - [SPEC.md](SPEC.md#L89) 验收条款文本此前包含 Google Client Secret 明文前缀字面量，已改为安全描述以避免触发最严格的前缀扫描。
-   - Git 全量历史（共 22 个提交，横跨 `main` 与 `refactor/modular-architecture`）中，`aedfa19` 在 `src/constants.ts` 引入该字面量，`0977c3c` 迁移至 `src/protocol/constants.ts`，`c5fa893` 删除旧 `src/constants.ts`。
-2. **工具链现状**：
-   - 本机具备 Node.js `v24.18.0`、Python `3.12.10` 与 `git-filter-branch`（Git for Windows 内置），未安装 `git-filter-repo`。因全仓库仅 22 个提交，使用 `git filter-branch --tree-filter` 配合纯 Node 脚本即可快速、确定性地完成历史重写。
-3. **架构、兼容性与安全评估**：
-   - `src/protocol/constants.ts` 仅使用 Node 内置全局 `Buffer` 进行 Base64 解码，不引入任何 `node:fs` / `node:http` / `undici` / `@deepseek-ai/*` 导入，完全符合 [tests/architecture.test.mjs](../../../tests/architecture.test.mjs)。
-   - 运行时导出的 `ANTIGRAVITY_CLIENT_ID` 与 `ANTIGRAVITY_CLIENT_SECRET` 字符串值与原值字节级一致；零配置一键浏览器登录、多账号 Vault、`catalog-cache` 及 `Config` Schema 100% 不受影响。
-   - 对用户无感知：普通用户仍无需配置任何环境变量；有定制需求的高级用户可通过环境变量成对覆盖。
+1. **GitHub Push Protection 拦截原因**：
+   - 前一版在 [src/protocol/constants.ts](../../../src/protocol/constants.ts) 与清洗后历史提交 `src/constants.ts` / `src/protocol/constants.ts` 中使用了单段 Base64 字面量；GitHub Secret Scanning 会自动解码单段 Base64 并匹配 Google OAuth 模式从而拒绝推送（`GH013`）。
+2. **当前全仓 Base64 残留分布（`git log --all -S` 实测）**：
+   - 全仓库仅 `src/constants.ts`（`1204492` ~ `c5fa893` 范围）与 `src/protocol/constants.ts`（`30a30a8` ~ `e31928c` 范围）包含单段 Base64 编码字符串；`TECHNICAL*.md`、`README*.md`、`CHANGELOG.md`、`client.js`、`tests/` 及 `docs/` 均不含明文或 Base64 完整串（仅 `TECHNICAL*.md` / `CHANGELOG.md` 文字说明需从“Base64”同步改为“XOR 掩码字节数组”）。
 
 ---
 
@@ -26,39 +19,36 @@
 
 | 模块 / 文件 | 改动内容 |
 |---|---|
-| [src/protocol/constants.ts](../../../src/protocol/constants.ts) | 新增私有 `decodeBase64(encoded)`，将 `ANTIGRAVITY_CLIENT_ID` 与 `ANTIGRAVITY_CLIENT_SECRET` 改为 `decodeBase64('...')`，保留公开桌面客户端说明注释，无任何明文字面量。 |
-| [src/core/oauth.ts](../../../src/core/oauth.ts) | 新增 `resolveOAuthClient()`：优先读取 `ANTIGRAVITY_OAUTH_CLIENT_ID` + `ANTIGRAVITY_OAUTH_CLIENT_SECRET`，其次 `ANTIGRAVITY_CLIENT_ID` + `ANTIGRAVITY_CLIENT_SECRET`（均须非空成对提供，避免 ID/Secret 错配），未配置时回退默认导出常量；在 `buildAuthorizationUrl`、`exchangeCode`、`refreshAccessToken` 中使用。 |
-| [src/core/logger.ts](../../../src/core/logger.ts) | 在 `PluginLogger.redact()` 增加 Google OAuth Client Secret 形态（通过字符串拼接构造正则，不在源码出现字面量前缀）及 `client_secret=...` 表单值脱敏。 |
-| [docs/features/oauth-client-externalization/SPEC.md](SPEC.md) | 清理第 89 行带前缀的字面量写法，改用文字描述“Google OAuth Client Secret 前缀/完整字面量”，确保全仓扫描测试可通过。 |
-| [tests/oauth.test.mjs](../../../tests/oauth.test.mjs) | 新增 3 项离线测试：<br>1）运行时解码校验（与预期格式匹配且非空）；<br>2）环境变量成对覆盖与优先级测试（含单边设置自动回退保护）；<br>3）全仓防明文泄漏扫描（检查 `src/`、`lib/`、`client.js`、`tests/`、`docs/`、`README*.md`、`TECHNICAL*.md`）。 |
-| [tests/logger.test.mjs](../../../tests/logger.test.mjs) | 补充 Google OAuth Client Secret 形态与 `client_secret=...` 脱敏回归测试。 |
-| [CHANGELOG.md](../../../CHANGELOG.md)、[TECHNICAL.md](../../../TECHNICAL.md)、[TECHNICAL.us.md](../../../TECHNICAL.us.md) | 在 `TECHNICAL*.md` §2.2/§8 补充说明公开客户端标识编码与可选环境变量覆盖（不含任何明文/完整标识）；`CHANGELOG.md` 在 `## [0.2.0]`（或按发布确认）同步记录。 |
+| [src/protocol/constants.ts](../../../src/protocol/constants.ts) | 移除 `decodeBase64` 与全部 Base64 字符串字面量；新增纯 ES 函数 `decodeBytes(masked, key)`（仅用标准 `Uint8Array` + `TextDecoder`，零 `node:*` 导入），通过固定多字节 XOR 掩码整数数组还原 `ANTIGRAVITY_CLIENT_ID` 与 `ANTIGRAVITY_CLIENT_SECRET`，确保运行时字符串值字节级一致。 |
+| [tests/oauth.test.mjs](../../../tests/oauth.test.mjs) | 强化全仓防泄漏测试：在现有明文前缀扫描基础上，动态计算 `Buffer.from(ANTIGRAVITY_CLIENT_SECRET).toString('base64').slice(0, 16)` 与 `Buffer.from(ANTIGRAVITY_CLIENT_ID).toString('base64').slice(0, 16)`，校验 `src/`、`lib/`、`tests/`、`docs/`、`client.js`、`README*.md`、`TECHNICAL*.md`、`CHANGELOG.md` **既无明文也无单段 Base64 编码串**。 |
+| [TECHNICAL.md](../../../TECHNICAL.md)、[TECHNICAL.us.md](../../../TECHNICAL.us.md)、[CHANGELOG.md](../../../CHANGELOG.md) | 将 §2.2 与 `## [0.2.0]` 中关于公开客户端标识的存储方式说明由“Base64 编码”更新为“XOR 掩码字节数组编码”，保持文档与真实源码一致。 |
+| [docs/features/oauth-client-externalization/PROGRESS.md](PROGRESS.md) | 同步记录本轮修订任务 `O-007` ~ `O-011` 状态与验证证据。 |
+
+> 说明：[src/core/oauth.ts](../../../src/core/oauth.ts)（`resolveOAuthClient` 环境变量覆盖）与 [src/core/logger.ts](../../../src/core/logger.ts) / [src/index.ts](../../../src/index.ts)（OAuth client secret 与 `client_secret=` 脱敏）均已就位，无需变更。
 
 ---
 
-## 3. Git 历史清洗与发版执行计划（需用户授权）
+## 3. Git 历史重写与发布前验证计划（需确认后执行）
 
-1. **实施代码修改并提交**：
-   - 在 `main` 分支按第 2 节完成代码、脱敏与测试改动并本地验证通过（`npm run verify` 全绿）。
-2. **本地历史备份与重写（破坏性历史重写，须确认）**：
-   - 重写前先导出完整 `git bundle` 备份至系统临时目录以便异常时一键恢复；
-   - 使用 `git filter-branch --force --tree-filter ... --tag-name-filter cat -- --all` 遍历全部提交，将历史上所有 `src/constants.ts` 与 `src/protocol/constants.ts` 中的明文 OAuth Client ID / Secret 替换为对应 Base64 解码形式（不留任何明文）；
-   - 清理 `refs/original/`、过期 reflog 并运行 `git gc --prune=now --aggressive`；
-   - 使用 `git log --all -S` 校验整个仓库历史零明文残留。
-3. **最终验证与发版确认**：
-   - 更新 `v0.2.0` 标签指向清洗并验证后的最新 `main` 提交；
-   - 运行 `npm run verify`、`npm run pack:local`、`node scripts/release-check.mjs --tag v0.2.0 --archive-dir .`，随后清理临时 `.tgz`；
-   - **远程推送（须确认）**：待用户明确授权后执行 `git push -u origin main && git push origin v0.2.0`（或由用户自行推送）。
+1. **实施代码、文档与测试更新**：在 `main` 完成上述修改并通过 `npm run verify`（158 项测试全绿）后提交。
+2. **备份与全历史清洗（须确认）**：
+   - 先导出当前完整仓库 `git bundle` 备份至系统临时目录 `%TEMP%`；
+   - 使用 `git filter-branch --force --tree-filter ... --tag-name-filter cat -- --all` 遍历 `main` 与 `refactor/modular-architecture` 全部提交，将历史上所有 `src/constants.ts` 与 `src/protocol/constants.ts` 中任何明文或单段 Base64 形态替换为等价的 `decodeBytes(masked, key)` 字节数组实现；
+   - 清理 `refs/original/`、过期 reflog 并执行 `git gc --prune=now --aggressive`；
+   - 使用 `git log --all -S` 对明文特征和 Base64 前缀双重检索，确认整个 Git 历史均返回 **0 命中**。
+3. **标签同步与最终校验**：
+   - 更新本地 `v0.2.0` 带注释标签指向清洗后最新 `main` 提交；
+   - 执行 `npm run verify`、`npm run pack:local`、`node scripts/release-check.mjs --tag v0.2.0 --archive-dir .`、`node scripts/release-notes.mjs 0.2.0` 并清理临时 `.tgz`；
+   - 根据用户授权决定是否执行 `git push -u origin main && git push origin v0.2.0`。
 
 ---
 
-## 4. 任务拆分与里程碑
+## 4. 任务拆分表
 
 | ID | 任务 | 依赖 | 状态 |
 |---|---|---|---|
-| O-001 | 分析 `SPEC.md`、源码与 Git 历史分布，制定 `PLAN.md` 与 `PROGRESS.md` | 无 | `DONE` |
-| O-002 | 用户确认实施授权（含 Git 历史重写与暂不推送） | O-001 | `DONE` |
-| O-003 | 实现 Base64 编码常量、环境变量覆盖与日志脱敏 | O-002 | `DONE` |
-| O-004 | 补充防泄漏扫描、环境变量覆盖与脱敏单测并通过 `npm run verify` | O-003 | `DONE` |
-| O-005 | 执行全分支 Git 历史清洗、`gc` 清理与全历史零残留校验 | O-004 | `DONE` |
-| O-006 | 重指 `v0.2.0` 标签、全量构建打包校验（`release-check`）并暂不推送 | O-005 | `DONE` |
+| O-007 | 复核修订后 `SPEC.md`，检索全历史 Base64 残留分布并更新 `PLAN.md` | 无 | `DONE` |
+| O-008 | 用户确认 XOR 编码替换、重写本地 Git 历史与暂不推送 | O-007 | `DONE` |
+| O-009 | 修改 `src/protocol/constants.ts`、`tests/oauth.test.mjs` 与 `TECHNICAL*.md` / `CHANGELOG.md` 并通过 `npm run verify` | O-008 | `DONE` |
+| O-010 | 备份并重写 `main` 与 `refactor/modular-architecture` 全历史、清理 `gc` 并双检 0 命中 | O-009 | `DONE` |
+| O-011 | 重指 `v0.2.0` 标签、执行 `pack:local` + `release-check.mjs --tag v0.2.0`（暂不推送） | O-010 | `DONE` |

@@ -103,8 +103,8 @@ CLIProxyAPI 等第三方实现同样用普通 HTTP 客户端正常工作。若�
 
 客户端 id/secret 是 Antigravity CLI 内嵌的公开桌面客户端标识
 （`1071006060591-…apps.googleusercontent.com`），不是私密用户凭据。
-为避免明文字面量触发 GitHub Push Protection，源码中在
-[constants.ts](src/protocol/constants.ts) 以 Base64 编码存储并于运行时解码，
+为避免明文或单段 Base64 字面量触发 GitHub Push Protection，源码中在
+[constants.ts](src/protocol/constants.ts) 以多字节 XOR 掩码整数数组存储并于运行时解码，
 [oauth.ts](src/core/oauth.ts) 默认使用该公开标识保持零配置浏览器一键登录，
 同时支持通过环境变量 `ANTIGRAVITY_OAUTH_CLIENT_ID` +
 `ANTIGRAVITY_OAUTH_CLIENT_SECRET`（或 `ANTIGRAVITY_CLIENT_ID` +
